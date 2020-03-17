@@ -3,6 +3,7 @@ module github.com/vulcand/oxy
 go 1.12
 
 require (
+	github.com/amahi/spdy v0.0.0-20151020092514-31da8b754faf
 	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd
 	github.com/gorilla/websocket v1.4.1
 	github.com/gravitational/trace v0.0.0-20190726142706-a535a178675f // indirect

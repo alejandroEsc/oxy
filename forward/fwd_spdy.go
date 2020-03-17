@@ -1,9 +1,9 @@
 package forward
 
 import (
-	"bytes"
-	"fmt"
-	"io"
+	//"bytes"
+	//"fmt"
+	//"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/joejulian/gspdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
+	"github.com/amahi/spdy"
 )
 
 const (
@@ -25,9 +26,6 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		logEntry.Debug("vulcand/oxy/forward/spdy: begin ServeHttp on request")
 		defer logEntry.Debug("vulcand/oxy/forward/spdy: completed ServeHttp on request")
 	}
-
-	logEntry := f.log.WithField("Request", utils.DumpHttpRequest(req))
-	logEntry.Debug("vulcand/oxy/forward/spdy: completed ServeHttp on request")
 
 	outReq := f.copySPDYRequest(req)
 
@@ -98,75 +96,79 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		}
 	}()
 
-	errClient := make(chan error, 1)
-	errBackend := make(chan error, 1)
-	replicateSPDYConn := func(dst, src *gspdy.Conn, errc chan error) {
+	//errClient := make(chan error, 1)
+	//errBackend := make(chan error, 1)
 
-		forward := func(messageType int, reader io.Reader) error {
-			writer, err := dst.NextWriter(messageType)
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(writer, reader)
-			if err != nil {
-				return err
-			}
-			return writer.Close()
-		}
+	session := spdy.NewServerSession(underlyingConn.UnderlyingConn(), &http.Server{})
+	session.Serve()
 
-		src.SetPingHandler(func(data string) error {
-			return forward(gspdy.PingMessage, bytes.NewReader([]byte(data)))
-		})
-
-		src.SetPongHandler(func(data string) error {
-			return forward(gspdy.PongMessage, bytes.NewReader([]byte(data)))
-		})
-
-		for {
-			msgType, reader, err := src.NextReader()
-
-			if err != nil {
-				m := gspdy.FormatCloseMessage(gspdy.CloseNormalClosure, fmt.Sprintf("%v", err))
-				if e, ok := err.(*gspdy.CloseError); ok {
-					if e.Code != gspdy.CloseNoStatusReceived {
-						m = nil
-						// Following codes are not valid on the wire so just close the
-						// underlying TCP connection without sending a close frame.
-						if e.Code != gspdy.CloseAbnormalClosure &&
-							e.Code != gspdy.CloseTLSHandshake {
-
-							m = gspdy.FormatCloseMessage(e.Code, e.Text)
-						}
-					}
-				}
-				errc <- err
-				if m != nil {
-					forward(gspdy.CloseMessage, bytes.NewReader([]byte(m)))
-				}
-				break
-			}
-			err = forward(msgType, reader)
-			if err != nil {
-				errc <- err
-				break
-			}
-		}
-	}
-
-	go replicateSPDYConn(underlyingConn, targetConn, errClient)
-	go replicateSPDYConn(targetConn, underlyingConn, errBackend)
-
-	var message string
-	select {
-	case err = <-errClient:
-		message = "vulcand/oxy/forward/spdy: Error when copying from backend to client: %v"
-	case err = <-errBackend:
-		message = "vulcand/oxy/forward/spdy: Error when copying from client to backend: %v"
-
-	}
-	if e, ok := err.(*gspdy.CloseError); !ok || e.Code == gspdy.CloseAbnormalClosure {
-		f.log.Errorf(message, err)
-	}
+	//replicateSPDYConn := func(dst, src *gspdy.Conn, errc chan error) {
+	//
+	//	forward := func(messageType int, reader io.Reader) error {
+	//		writer, err := dst.NextWriter(messageType)
+	//		if err != nil {
+	//			return err
+	//		}
+	//		_, err = io.Copy(writer, reader)
+	//		if err != nil {
+	//			return err
+	//		}
+	//		return writer.Close()
+	//	}
+	//
+	//	src.SetPingHandler(func(data string) error {
+	//		return forward(gspdy.PingMessage, bytes.NewReader([]byte(data)))
+	//	})
+	//
+	//	src.SetPongHandler(func(data string) error {
+	//		return forward(gspdy.PongMessage, bytes.NewReader([]byte(data)))
+	//	})
+	//
+	//	for {
+	//		msgType, reader, err := src.NextReader()
+	//
+	//		if err != nil {
+	//			m := gspdy.FormatCloseMessage(gspdy.CloseNormalClosure, fmt.Sprintf("%v", err))
+	//			if e, ok := err.(*gspdy.CloseError); ok {
+	//				if e.Code != gspdy.CloseNoStatusReceived {
+	//					m = nil
+	//					// Following codes are not valid on the wire so just close the
+	//					// underlying TCP connection without sending a close frame.
+	//					if e.Code != gspdy.CloseAbnormalClosure &&
+	//						e.Code != gspdy.CloseTLSHandshake {
+	//
+	//						m = gspdy.FormatCloseMessage(e.Code, e.Text)
+	//					}
+	//				}
+	//			}
+	//			errc <- err
+	//			if m != nil {
+	//				forward(gspdy.CloseMessage, bytes.NewReader([]byte(m)))
+	//			}
+	//			break
+	//		}
+	//		err = forward(msgType, reader)
+	//		if err != nil {
+	//			errc <- err
+	//			break
+	//		}
+	//	}
+	//}
+	//
+	//go replicateSPDYConn(underlyingConn, targetConn, errClient)
+	//go replicateSPDYConn(targetConn, underlyingConn, errBackend)
+	//
+	//var message string
+	//select {
+	//case err = <-errClient:
+	//	message = "vulcand/oxy/forward/spdy: Error when copying from backend to client: %v"
+	//case err = <-errBackend:
+	//	message = "vulcand/oxy/forward/spdy: Error when copying from client to backend: %v"
+	//
+	//}
+	//if e, ok := err.(*gspdy.CloseError); !ok || e.Code == gspdy.CloseAbnormalClosure {
+	//	f.log.Errorf(message, err)
+	//}
 }
 
 // copySPDYRequest makes a copy of the specified request.
