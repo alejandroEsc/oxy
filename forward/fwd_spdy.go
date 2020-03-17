@@ -8,18 +8,26 @@ import (
 	"reflect"
 	"strings"
 
-	gspdy "github.com/gorilla/websocket"
+	"github.com/joejulian/gspdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
 )
 
+const (
+	debugPrevix = "AE: vulcand/oxy/forward/spdy: "
+)
+
 // serveHTTP forwards spdy traffic
 func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
+
 	if f.log.GetLevel() >= log.DebugLevel {
 		logEntry := f.log.WithField("Request", utils.DumpHttpRequest(req))
 		logEntry.Debug("vulcand/oxy/forward/spdy: begin ServeHttp on request")
 		defer logEntry.Debug("vulcand/oxy/forward/spdy: completed ServeHttp on request")
 	}
+
+	logEntry := f.log.WithField("Request", utils.DumpHttpRequest(req))
+	logEntry.Debug("vulcand/oxy/forward/spdy: completed ServeHttp on request")
 
 	outReq := f.copySPDYRequest(req)
 
@@ -64,6 +72,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 				return
 			}
 		}
+		f.log.Errorf("%s error: with response %s", debugPrevix, err)
 		return
 	}
 
@@ -77,10 +86,11 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 
 	underlyingConn, err := upgrader.Upgrade(w, req, resp.Header)
 	if err != nil {
-		f.log.Errorf("vulcand/oxy/forward/spdy: Error while upgrading connection : %v", err)
+		f.log.Errorf("%s error: while upgrading connection : %v", debugPrevix, err)
 		return
 	}
 	defer func() {
+		f.log.Debugf("%s closing underlying connection", debugPrevix)
 		underlyingConn.Close()
 		targetConn.Close()
 		if f.websocketConnectionClosedHook != nil {
