@@ -11,7 +11,8 @@ import (
 	"github.com/joejulian/gspdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	"github.com/amahi/spdy"
+	//"github.com/amahi/spdy"
+	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
 
 const (
@@ -37,7 +38,9 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		dialer.TLSClientConfig.NextProtos = []string{"http/1.1"}
 	}
 
-	targetConn, resp, err := dialer.DialContext(outReq.Context(), outReq.URL.String(), outReq.Header)
+	// DIAL and set up error servers for error handling
+	_, resp, err := dialer.DialContext(outReq.Context(), outReq.URL.String(), outReq.Header)
+	//targetConn, resp, err := dialer.DialContext(outReq.Context(), outReq.URL.String(), outReq.Header)
 	if err != nil {
 		if resp == nil {
 			ctx.errHandler.ServeHTTP(w, req, err)
@@ -74,33 +77,39 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		return
 	}
 
+	upgrader := k8spdy.NewResponseUpgrader()
 	// Only the targetConn choose to CheckOrigin or not
-	upgrader := gspdy.Upgrader{CheckOrigin: func(r *http.Request) bool {
-		return true
-	}}
+	//upgrader := gspdy.Upgrader{CheckOrigin: func(r *http.Request) bool {
+	//	return true
+	//}}
 
-	utils.RemoveHeaders(resp.Header, WebsocketUpgradeHeaders...)
-	utils.CopyHeaders(resp.Header, w.Header())
+	//utils.RemoveHeaders(resp.Header, WebsocketUpgradeHeaders...)
+	//utils.CopyHeaders(resp.Header, w.Header())
 
-	underlyingConn, err := upgrader.Upgrade(w, req, resp.Header)
-	if err != nil {
-		f.log.Errorf("%s error: while upgrading connection : %v", debugPrevix, err)
-		return
-	}
-	defer func() {
-		f.log.Debugf("%s closing underlying connection", debugPrevix)
-		underlyingConn.Close()
-		targetConn.Close()
-		if f.websocketConnectionClosedHook != nil {
-			f.websocketConnectionClosedHook(req, underlyingConn.UnderlyingConn())
-		}
-	}()
+	streamConnection := upgrader.UpgradeResponse(w, req, nil)
+	defer streamConnection.Close()
+
+	//session := spdy.NewServerSession(streamConnection., &http.Server{})
+	//session.Serve()
+
+
+	//underlyingConn, err := upgrader.Upgrade(w, req, resp.Header)
+	//if err != nil {
+	//	f.log.Errorf("%s error: while upgrading connection : %v", debugPrevix, err)
+	//	return
+	//}
+	//defer func() {
+	//	f.log.Debugf("%s closing underlying connection", debugPrevix)
+	//	underlyingConn.Close()
+	//	targetConn.Close()
+	//	if f.websocketConnectionClosedHook != nil {
+	//		f.websocketConnectionClosedHook(req, underlyingConn.UnderlyingConn())
+	//	}
+	//}()
 
 	//errClient := make(chan error, 1)
 	//errBackend := make(chan error, 1)
 
-	session := spdy.NewServerSession(underlyingConn.UnderlyingConn(), &http.Server{})
-	session.Serve()
 
 	//replicateSPDYConn := func(dst, src *gspdy.Conn, errc chan error) {
 	//
