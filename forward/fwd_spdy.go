@@ -35,6 +35,10 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	// Upgrade Connection
 	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
 	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+	w.Header().Add(httpstream.HeaderAcceptedProtocolVersions, "v4.channel.k8s.io")
+	w.Header().Add(httpstream.HeaderAcceptedProtocolVersions, "v3.channel.k8s.io")
+	w.Header().Add(httpstream.HeaderAcceptedProtocolVersions, "v2.channel.k8s.io")
+	w.Header().Add(httpstream.HeaderAcceptedProtocolVersions, "channel.k8s.io")
 	w.WriteHeader(http.StatusSwitchingProtocols)
 
 	start := time.Now().UTC()
