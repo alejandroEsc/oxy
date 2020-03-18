@@ -32,7 +32,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 
 
 	f.log.Debugf("%s writting upgrade headers", debugPrefix)
-
+	// Upgrade Connection
 	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
 	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
 	w.WriteHeader(http.StatusSwitchingProtocols)
@@ -150,6 +150,22 @@ func (f *httpForwarder) modifySPDYRequest(outReq *http.Request, target *url.URL)
 // IsSPDYRequest determines if the specified HTTP request is a
 // SPDY/3.1 handshake request
 func IsSPDYRequest(req *http.Request) bool {
+	log.Debugf("AE: Request PROTOCOL is: %s , source %s, path %s",req.Proto, req.Host, req.URL.Path)
+	containsHeader := func(name, value string) bool {
+		items := strings.Split(req.Header.Get(name), ",")
+		for _, item := range items {
+			if value == strings.ToLower(strings.TrimSpace(item)) {
+				return true
+			}
+		}
+		return false
+	}
+	return containsHeader(Connection, "upgrade") && containsHeader(Upgrade, "spdy/3.1")
+}
+
+// IsSPDYRequest determines if the specified HTTP request is a
+// SPDY/3.1 handshake request
+func requiresUpgradeSPDY(req *http.Request) bool {
 	containsHeader := func(name, value string) bool {
 		items := strings.Split(req.Header.Get(name), ",")
 		for _, item := range items {
