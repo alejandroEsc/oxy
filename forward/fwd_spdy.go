@@ -3,6 +3,10 @@ package forward
 import (
 	//"bufio"
 	"io"
+	"net/http/httputil"
+	"net/url"
+	"time"
+
 	//"net"
 	"net/http"
 	"strings"
@@ -48,18 +52,23 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		return
 	}
 
-	//f.log.Debugf("%s create the connection, this may be wrong", debugPrefix)
-	//conn := &rwConn{
-	//	Conn:      hijackedConn,
-	//	Reader:    io.MultiReader(rw),
-	//	BufWriter: newSettingsAckSwallowWriter(rw.Writer),
-	//}
-
-
 	// items todo when complete
 	doafter := func(){
 		hijackedConn.Close()
 		f.log.Debugf("%s closing items, completed.", debugPrefix)
+	}
+
+	start := time.Now().UTC()
+	outReq := f.copySPDYRequest(req)
+
+	revproxy := httputil.ReverseProxy{
+		Director: func(r *http.Request) {
+			f.modifySPDYRequest(r, req.URL)
+		},
+		Transport:      f.roundTripper,
+		FlushInterval:  f.flushInterval,
+		ModifyResponse: f.modifyResponse,
+		BufferPool:     f.bufferPool,
 	}
 
 	// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
@@ -67,30 +76,33 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	f.log.Debugf("%s create new k8spdy connection", debugPrefix)
 	//session := spdy.NewServerSession(hijackedConn, &http.Server{})
 
-	streamChan := make(chan httpstream.Stream)
-	replySentChan := make(chan (<-chan struct{}))
-	f.log.Debugf("%s creating k8spdy connection.", debugPrefix)
-	_, err = k8spdy.NewServerConnection(hijackedConn, func(stream httpstream.Stream, replySent <-chan struct{}) error {
-		streamChan <- stream
-		replySentChan <- replySent
-		return nil
-	})
-	if err != nil {
-		f.log.Errorf("server: error creating spdy connection: %v", err)
+	if f.log.GetLevel() >= log.DebugLevel {
+		pw := utils.NewProxyWriter(w)
+		revproxy.ServeHTTP(pw, outReq)
+
+		if req.TLS != nil {
+			f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
+				req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start),
+				req.TLS.Version,
+				req.TLS.DidResume,
+				req.TLS.CipherSuite,
+				req.TLS.ServerName)
+		} else {
+			f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v",
+				req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start))
+		}
+	} else {
+		revproxy.ServeHTTP(w, outReq)
 	}
 
-	stream := <-streamChan
-	replySent := <-replySentChan
-	<-replySent
-
-	buf := make([]byte, 1)
-	_, err = stream.Read(buf)
-	if err != io.EOF {
-		f.log.Errorf("server: unexpected read error: %v", err)
+	for key := range w.Header() {
+		if strings.HasPrefix(key, http.TrailerPrefix) {
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			break
+		}
 	}
-
-	//f.log.Debugf("%s serve", debugPrefix)
-	//session.Serve()
 
 	defer doafter()
 }
@@ -133,6 +145,30 @@ func (f *httpForwarder) copySPDYRequest(req *http.Request) (outReq *http.Request
 	}
 	return outReq
 }
+
+// Modify the request to handle the target URL
+func (f *httpForwarder) modifySPDYRequest(outReq *http.Request, target *url.URL) {
+	outReq.URL = utils.CopyURL(outReq.URL)
+	outReq.URL.Scheme = target.Scheme
+	outReq.URL.Host = target.Host
+
+	u := f.getUrlFromRequest(outReq)
+
+	outReq.URL.Path = u.Path
+	outReq.URL.RawPath = u.RawPath
+	outReq.URL.RawQuery = u.RawQuery
+	outReq.RequestURI = "" // Outgoing request should not have RequestURI
+
+	if f.rewriter != nil {
+		f.rewriter.Rewrite(outReq)
+	}
+
+	// Do not pass client Host header unless optsetter PassHostHeader is set.
+	if !f.passHost {
+		outReq.Host = target.Host
+	}
+}
+
 
 // IsSPDYRequest determines if the specified HTTP request is a
 // SPDY/3.1 handshake request
