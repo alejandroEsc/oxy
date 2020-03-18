@@ -5,10 +5,8 @@ github.com/PuerkitoBio/purell v1.1.1/go.mod h1:c11w/QuzBsJSee3cPx9rAFu61PvFxuPbt
 github.com/PuerkitoBio/urlesc v0.0.0-20160726150825-5bd2802263f2/go.mod h1:uGdkoq3SwY9Y+13GIhn11/XLaGBb4BfwItxLd5jeuXE=
 github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 h1:d+Bc7a5rLufV/sSk/8dngufqelfh6jnri85riMAaF/M=
 github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578/go.mod h1:uGdkoq3SwY9Y+13GIhn11/XLaGBb4BfwItxLd5jeuXE=
-github.com/SlyMarbo/spdy v0.0.0-20140609194815-a0d2c56cf770 h1:Bdrz7uaR1Kgv8ga9r6WsQOZ27pYdlZwAUjVLqGjcQNw=
-github.com/SlyMarbo/spdy v0.0.0-20140609194815-a0d2c56cf770/go.mod h1:AWAJbfaJTNYtQz4LAtnG2Q7ooxLsPzrdvPkXhpvwDhc=
-github.com/SlyMarbo/spin v0.0.0-20140607095123-1c3ff10e10c8 h1:pCTv+aKozhWKyun/vx1ZLaV5a2lvIu1C/OmQpxzYE9E=
-github.com/SlyMarbo/spin v0.0.0-20140607095123-1c3ff10e10c8/go.mod h1:d+e1KWHuc5C64dN6Kb/rI3pvdCM4xZKGYmlPP5yHLeU=
+github.com/amahi/spdy v0.0.0-20151020092514-31da8b754faf h1:eUIcfvVx0359G7kkRim1HDiuQEjlR4TNDjCZNsyV7FY=
+github.com/amahi/spdy v0.0.0-20151020092514-31da8b754faf/go.mod h1:byo88+FGC0pmkXWEHHKp4ThhSfz4U9Jr3+viz0i62VM=
 github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd h1:qMd81Ts1T2OTKmB4acZcyKaMtRnY5Y44NuXGX2GFJ1w=
 github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd/go.mod h1:sE/e/2PUdi/liOCUjSTXgM1o87ZssimdTWN964YiIeI=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

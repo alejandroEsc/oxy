@@ -1,21 +1,21 @@
 package forward
 
 import (
+	"bufio"
 	"fmt"
-	//"bytes"
-	//"fmt"
-	//"io"
+	"io"
+	"net"
 	"net/http"
 	"reflect"
 	"strings"
 
+	"github.com/amahi/spdy"
 	"github.com/joejulian/gspdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	//"github.com/amahi/spdy"
-	sspdy "github.com/SlyMarbo/spdy"
-	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 	"k8s.io/apimachinery/pkg/util/httpstream"
+	//sspdy "github.com/SlyMarbo/spdy"
+	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
 
 const (
@@ -93,36 +93,54 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
 	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	conn, _, err := hijacker.Hijack()
+	hijackedConn, rw, err := hijacker.Hijack()
 	if err != nil {
 		f.log.Errorf("%s error: unable to upgrade: unable to hijack and get connection %s", debugPrevix, err)
 		return
 	}
 
+	conn := &rwConn{
+		Conn:      hijackedConn,
+		Reader:    io.MultiReader(rw),
+		BufWriter: newSettingsAckSwallowWriter(rw.Writer),
+	}
+
 	defer conn.Close()
 
-	// Send the connection accepted response.
-	res := new(http.Response)
-	res.Status = "200 Connection Established"
-	res.StatusCode = http.StatusOK
-	res.Proto = "HTTP/1.1"
-	res.ProtoMajor = 1
-	res.ProtoMinor = 1
-	if err = res.Write(conn); err != nil {
-		f.log.Errorf("Failed to send connection established message in ProxyConnections.", err)
-		return
+	session := spdy.NewServerSession(conn, &http.Server{})
+	session.Serve()
+	return
+
+
+
+}
+
+// rwConn implements net.Conn but overrides Read and Write so that reads and
+// writes are forwarded to the provided io.Reader and bufWriter.
+type rwConn struct {
+	net.Conn
+	io.Reader
+	BufWriter bufWriter
+}
+
+// Read forwards reads to the underlying Reader.
+func (c *rwConn) Read(p []byte) (int, error) {
+	return c.Reader.Read(p)
+}
+
+// Write forwards writes to the underlying bufWriter and immediately flushes.
+func (c *rwConn) Write(p []byte) (int, error) {
+	n, err := c.BufWriter.Write(p)
+	if err := c.BufWriter.Flush(); err != nil {
+		return 0, err
 	}
+	return n, err
+}
 
-	client, err := sspdy.NewClientConn(conn, nil, 3, 1)
-
-	if err != nil {
-		f.log.Errorf("Error creating SPDY connection in ProxyConnections.", err)
-		return
-	}
-
-	go client.Run()
-
-	client.Close()
+// bufWriter is a Writer interface that also has a Flush method.
+type bufWriter interface {
+	io.Writer
+	Flush() error
 }
 
 // copySPDYRequest makes a copy of the specified request.
@@ -171,4 +189,32 @@ func IsSPDYRequest(req *http.Request) bool {
 		return false
 	}
 	return containsHeader(Connection, "upgrade") && containsHeader(Upgrade, "spdy/3.1")
+}
+
+// settingsAckSwallowWriter is a writer that normally forwards bytes to it's
+// underlying Writer, but swallows the first SettingsAck frame that it sees.
+type settingsAckSwallowWriter struct {
+	Writer     *bufio.Writer
+	buf        []byte
+	didSwallow bool
+}
+
+// newSettingsAckSwallowWriter returns a new settingsAckSwallowWriter.
+func newSettingsAckSwallowWriter(w *bufio.Writer) *settingsAckSwallowWriter {
+	return &settingsAckSwallowWriter{
+		Writer:     w,
+		buf:        make([]byte, 0),
+		didSwallow: false,
+	}
+}
+
+// Write implements io.Writer interface. Normally forwards bytes to w.Writer,
+// except for the first Settings ACK frame that it sees.
+func (w *settingsAckSwallowWriter) Write(p []byte) (int, error) {
+	return w.Writer.Write(p)
+}
+
+// Flush calls w.Writer.Flush.
+func (w *settingsAckSwallowWriter) Flush() error {
+	return w.Writer.Flush()
 }
