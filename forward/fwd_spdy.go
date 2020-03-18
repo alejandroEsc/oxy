@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/amahi/spdy"
+	//"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
 	"k8s.io/apimachinery/pkg/util/httpstream"
@@ -23,9 +23,7 @@ const (
 func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
 
 	if f.log.GetLevel() >= log.DebugLevel {
-		logEntry := f.log.WithField("Request", utils.DumpHttpRequest(req))
-		logEntry.Debugf("%s vulcand/oxy/forward/spdy: begin ServeHttp on request", debugPrefix)
-		defer logEntry.Debugf("%s vulcand/oxy/forward/spdy: done", debugPrefix)
+		defer f.log.Debugf("%s vulcand/oxy/forward/spdy: done", debugPrefix)
 	}
 
 	// upgrade the connection
@@ -57,15 +55,27 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//	BufWriter: newSettingsAckSwallowWriter(rw.Writer),
 	//}
 
-	defer hijackedConn.Close()
+
+	// items todo when complete
+	doafter := func(){
+		hijackedConn.Close()
+		f.log.Debugf("%s closing items, completed.", debugPrefix)
+	}
 
 	// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
 
-	f.log.Debugf("%s create new session", debugPrefix)
-	session := spdy.NewServerSession(hijackedConn, &http.Server{})
-	f.log.Debugf("%s serve", debugPrefix)
+	f.log.Debugf("%s create new k8spdy connection", debugPrefix)
+	//session := spdy.NewServerSession(hijackedConn, &http.Server{})
 
-	session.Serve()
+	k8spdy.NewServerConnection(hijackedConn, nil)
+
+
+	//f.log.Debugf("%s serve", debugPrefix)
+	//session.Serve()
+
+
+	defer doafter()
+
 }
 
 // rwConn implements net.Conn but overrides Read and Write so that reads and
