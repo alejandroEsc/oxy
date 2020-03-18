@@ -30,33 +30,12 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		defer f.log.Debugf("%s vulcand/oxy/forward/spdy: done", debugPrefix)
 	}
 
-	// upgrade the connection
-	f.log.Debugf("%s hijacking connection", debugPrefix)
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		http.Error(w, "unable to upgrade: unable to hijack response", http.StatusInternalServerError)
-		f.log.Errorf("%s error: unable to upgrade: unable to hijack response", debugPrefix)
-		return
-	}
 
 	f.log.Debugf("%s writting upgrade headers", debugPrefix)
 
 	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
 	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
 	w.WriteHeader(http.StatusSwitchingProtocols)
-
-	f.log.Debugf("%s do the hijacking", debugPrefix)
-	hijackedConn, _, err := hijacker.Hijack()
-	if err != nil {
-		f.log.Errorf("%s error: unable to upgrade: unable to hijack and get connection %s", debugPrefix, err)
-		return
-	}
-
-	// items todo when complete
-	doafter := func(){
-		hijackedConn.Close()
-		f.log.Debugf("%s closing items, completed.", debugPrefix)
-	}
 
 	start := time.Now().UTC()
 	outReq := f.copySPDYRequest(req)
@@ -103,8 +82,6 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 			break
 		}
 	}
-
-	defer doafter()
 }
 
 // bufWriter is a Writer interface that also has a Flush method.
