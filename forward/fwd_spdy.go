@@ -57,7 +57,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	defer hijackedConn.Close()
 
 	session := spdy.NewServerSession(hijackedConn, &http.Server{})
-	session.NewStreamProxy(req, w)
+	session.Serve()
 	defer session.Close()
 }
 
