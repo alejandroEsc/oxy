@@ -2,7 +2,6 @@ package forward
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
