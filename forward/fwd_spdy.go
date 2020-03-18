@@ -26,7 +26,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	if f.log.GetLevel() >= log.DebugLevel {
 		logEntry := f.log.WithField("Request", utils.DumpHttpRequest(req))
 		logEntry.Debug("vulcand/oxy/forward/spdy: begin ServeHttp on request")
-		defer logEntry.Debug("vulcand/oxy/forward/spdy: completed ServeHttp on request")
+		defer logEntry.Debug("vulcand/oxy/forward/spdy: done")
 	}
 
 	// upgrade the connection
@@ -42,23 +42,22 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
 	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	hijackedConn, _, err := hijacker.Hijack()
+	hijackedConn, rw, err := hijacker.Hijack()
 	if err != nil {
 		f.log.Errorf("%s error: unable to upgrade: unable to hijack and get connection %s", debugPrevix, err)
 		return
 	}
 
-	//conn := &rwConn{
-	//	Conn:      hijackedConn,
-	//	Reader:    io.MultiReader(rw),
-	//	BufWriter: newSettingsAckSwallowWriter(rw.Writer),
-	//}
+	conn := &rwConn{
+		Conn:      hijackedConn,
+		Reader:    io.MultiReader(rw),
+		BufWriter: newSettingsAckSwallowWriter(rw.Writer),
+	}
 
-	defer hijackedConn.Close()
+	defer conn.Close()
 
-	session := spdy.NewServerSession(hijackedConn, &http.Server{})
+	session := spdy.NewServerSession(conn, &http.Server{})
 	session.Serve()
-	defer session.Close()
 }
 
 // rwConn implements net.Conn but overrides Read and Write so that reads and
