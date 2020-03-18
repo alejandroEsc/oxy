@@ -6,11 +6,9 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"reflect"
 	"strings"
 
 	"github.com/amahi/spdy"
-	"github.com/joejulian/gspdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
 	"k8s.io/apimachinery/pkg/util/httpstream"
@@ -31,55 +29,6 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		defer logEntry.Debug("vulcand/oxy/forward/spdy: completed ServeHttp on request")
 	}
 
-	outReq := f.copySPDYRequest(req)
-
-	dialer := gspdy.DefaultDialer
-
-	if outReq.URL.Scheme == "https" && f.tlsClientConfig != nil {
-		dialer.TLSClientConfig = f.tlsClientConfig.Clone()
-		// WebSocket is only in http/1.1
-		dialer.TLSClientConfig.NextProtos = []string{"http/1.1"}
-	}
-
-	// DIAL and set up error servers for error handling
-	_, resp, err := dialer.DialContext(outReq.Context(), outReq.URL.String(), outReq.Header)
-	//targetConn, resp, err := dialer.DialContext(outReq.Context(), outReq.URL.String(), outReq.Header)
-	if err != nil {
-		if resp == nil {
-			ctx.errHandler.ServeHTTP(w, req, err)
-		} else {
-			f.log.Errorf("vulcand/oxy/forward/websocket: Error dialing %q: %v with resp: %d %s", outReq.Host, err, resp.StatusCode, resp.Status)
-			hijacker, ok := w.(http.Hijacker)
-			if !ok {
-				f.log.Errorf("vulcand/oxy/forward/websocket: %s can not be hijack", reflect.TypeOf(w))
-				ctx.errHandler.ServeHTTP(w, req, err)
-				return
-			}
-
-			conn, _, errHijack := hijacker.Hijack()
-			if errHijack != nil {
-				f.log.Errorf("vulcand/oxy/forward/websocket: Failed to hijack responseWriter")
-				ctx.errHandler.ServeHTTP(w, req, errHijack)
-				return
-			}
-			defer func() {
-				conn.Close()
-				if f.websocketConnectionClosedHook != nil {
-					f.websocketConnectionClosedHook(req, conn)
-				}
-			}()
-
-			errWrite := resp.Write(conn)
-			if errWrite != nil {
-				f.log.Errorf("vulcand/oxy/forward/websocket: Failed to forward response")
-				ctx.errHandler.ServeHTTP(w, req, errWrite)
-				return
-			}
-		}
-		f.log.Errorf("%s error: with response %s", debugPrevix, err)
-		return
-	}
-
 	// upgrade the connection
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -93,21 +42,21 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
 	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	hijackedConn, rw, err := hijacker.Hijack()
+	hijackedConn, _, err := hijacker.Hijack()
 	if err != nil {
 		f.log.Errorf("%s error: unable to upgrade: unable to hijack and get connection %s", debugPrevix, err)
 		return
 	}
 
-	conn := &rwConn{
-		Conn:      hijackedConn,
-		Reader:    io.MultiReader(rw),
-		BufWriter: newSettingsAckSwallowWriter(rw.Writer),
-	}
+	//conn := &rwConn{
+	//	Conn:      hijackedConn,
+	//	Reader:    io.MultiReader(rw),
+	//	BufWriter: newSettingsAckSwallowWriter(rw.Writer),
+	//}
 
-	defer conn.Close()
+	defer hijackedConn.Close()
 
-	session := spdy.NewServerSession(conn, &http.Server{})
+	session := spdy.NewServerSession(hijackedConn, &http.Server{})
 	session.NewStreamProxy(req, w)
 	defer session.Close()
 }
