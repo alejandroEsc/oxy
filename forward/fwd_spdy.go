@@ -67,37 +67,32 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	f.log.Debugf("%s create new k8spdy connection", debugPrefix)
 	//session := spdy.NewServerSession(hijackedConn, &http.Server{})
 
-	k8spdy.NewServerConnection(hijackedConn, nil)
+	streamChan := make(chan httpstream.Stream)
+	replySentChan := make(chan (<-chan struct{}))
+	f.log.Debugf("%s creating k8spdy connection.", debugPrefix)
+	_, err = k8spdy.NewServerConnection(hijackedConn, func(stream httpstream.Stream, replySent <-chan struct{}) error {
+		streamChan <- stream
+		replySentChan <- replySent
+		return nil
+	})
+	if err != nil {
+		f.log.Errorf("server: error creating spdy connection: %v", err)
+	}
 
+	stream := <-streamChan
+	replySent := <-replySentChan
+	<-replySent
+
+	buf := make([]byte, 1)
+	_, err = stream.Read(buf)
+	if err != io.EOF {
+		f.log.Errorf("server: unexpected read error: %v", err)
+	}
 
 	//f.log.Debugf("%s serve", debugPrefix)
 	//session.Serve()
 
-
 	defer doafter()
-
-}
-
-// rwConn implements net.Conn but overrides Read and Write so that reads and
-// writes are forwarded to the provided io.Reader and bufWriter.
-type rwConn struct {
-	net.Conn
-	io.Reader
-	BufWriter bufWriter
-}
-
-// Read forwards reads to the underlying Reader.
-func (c *rwConn) Read(p []byte) (int, error) {
-	return c.Reader.Read(p)
-}
-
-// Write forwards writes to the underlying bufWriter and immediately flushes.
-func (c *rwConn) Write(p []byte) (int, error) {
-	n, err := c.BufWriter.Write(p)
-	if err := c.BufWriter.Flush(); err != nil {
-		return 0, err
-	}
-	return n, err
 }
 
 // bufWriter is a Writer interface that also has a Flush method.
@@ -152,32 +147,4 @@ func IsSPDYRequest(req *http.Request) bool {
 		return false
 	}
 	return containsHeader(Connection, "upgrade") && containsHeader(Upgrade, "spdy/3.1")
-}
-
-// settingsAckSwallowWriter is a writer that normally forwards bytes to it's
-// underlying Writer, but swallows the first SettingsAck frame that it sees.
-type settingsAckSwallowWriter struct {
-	Writer     *bufio.Writer
-	buf        []byte
-	didSwallow bool
-}
-
-// newSettingsAckSwallowWriter returns a new settingsAckSwallowWriter.
-func newSettingsAckSwallowWriter(w *bufio.Writer) *settingsAckSwallowWriter {
-	return &settingsAckSwallowWriter{
-		Writer:     w,
-		buf:        make([]byte, 0),
-		didSwallow: false,
-	}
-}
-
-// Write implements io.Writer interface. Normally forwards bytes to w.Writer,
-// except for the first Settings ACK frame that it sees.
-func (w *settingsAckSwallowWriter) Write(p []byte) (int, error) {
-	return w.Writer.Write(p)
-}
-
-// Flush calls w.Writer.Flush.
-func (w *settingsAckSwallowWriter) Flush() error {
-	return w.Writer.Flush()
 }
