@@ -14,9 +14,9 @@ import (
 	//"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	//"k8s.io/apimachinery/pkg/util/httpstream"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	//sspdy "github.com/SlyMarbo/spdy"
-	//k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
+	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
 
 const (
@@ -33,9 +33,9 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 
 	f.log.Debugf("%s writting upgrade headers", debugPrefix)
 	// Upgrade Connection
-	//w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
-	//w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
-	//w.WriteHeader(http.StatusSwitchingProtocols)
+	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+	w.WriteHeader(http.StatusSwitchingProtocols)
 
 	start := time.Now().UTC()
 	outReq := f.copySPDYRequest(req)
@@ -135,6 +135,10 @@ func (f *httpForwarder) modifySPDYRequest(outReq *http.Request, target *url.URL)
 	outReq.URL.RawPath = u.RawPath
 	outReq.URL.RawQuery = u.RawQuery
 	outReq.RequestURI = "" // Outgoing request should not have RequestURI
+
+	outReq.Proto = "SPDY/3.1"
+	outReq.ProtoMajor = 3
+	outReq.ProtoMinor = 1
 
 	if f.rewriter != nil {
 		f.rewriter.Rewrite(outReq)

@@ -28,7 +28,7 @@ require (
 	github.com/vulcand/predicate v1.1.0
 	golang.org/x/net v0.0.0-20191004110552-13f9640d40b9
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	// k8s.io/apimachinery v0.0.0-20171207040834-180eddb345a5
+	k8s.io/apimachinery v0.0.0-20171207040834-180eddb345a5
 	k8s.io/kube-openapi v0.0.0-20200204173128-addea2498afe // indirect
 	launchpad.net/gocheck v0.0.0-20140225173054-000000000087 // indirect
 )
