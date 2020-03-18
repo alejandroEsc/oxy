@@ -1,9 +1,9 @@
 package forward
 
 import (
-	"bufio"
+	//"bufio"
 	"io"
-	"net"
+	//"net"
 	"net/http"
 	"strings"
 
