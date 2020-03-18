@@ -108,11 +108,8 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	defer conn.Close()
 
 	session := spdy.NewServerSession(conn, &http.Server{})
-	session.Serve()
-	return
-
-
-
+	session.NewStreamProxy(req, w)
+	defer session.Close()
 }
 
 // rwConn implements net.Conn but overrides Read and Write so that reads and
