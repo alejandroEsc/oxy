@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	debugPrevix = "AE: vulcand/oxy/forward/spdy: "
+	debugPrefix = "AE: vulcand/oxy/forward/spdy: "
 )
 
 // serveHTTP forwards spdy traffic
@@ -25,38 +25,47 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 
 	if f.log.GetLevel() >= log.DebugLevel {
 		logEntry := f.log.WithField("Request", utils.DumpHttpRequest(req))
-		logEntry.Debug("vulcand/oxy/forward/spdy: begin ServeHttp on request")
-		defer logEntry.Debug("vulcand/oxy/forward/spdy: done")
+		logEntry.Debugf("%s vulcand/oxy/forward/spdy: begin ServeHttp on request", debugPrefix)
+		defer logEntry.Debugf("%s vulcand/oxy/forward/spdy: done", debugPrefix)
 	}
 
 	// upgrade the connection
+	f.log.Debugf("%s hijacking connection", debugPrefix)
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
-		errorMsg := fmt.Sprintf("unable to upgrade: unable to hijack response")
-		http.Error(w, errorMsg, http.StatusInternalServerError)
-		f.log.Errorf("%s error: unable to upgrade: unable to hijack response", debugPrevix)
+		http.Error(w, "unable to upgrade: unable to hijack response", http.StatusInternalServerError)
+		f.log.Errorf("%s error: unable to upgrade: unable to hijack response", debugPrefix)
 		return
 	}
+
+	f.log.Debugf("%s writting upgrade headers", debugPrefix)
 
 	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
 	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
 	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	hijackedConn, rw, err := hijacker.Hijack()
+	f.log.Debugf("%s do the hijacking", debugPrefix)
+	hijackedConn, _, err := hijacker.Hijack()
 	if err != nil {
-		f.log.Errorf("%s error: unable to upgrade: unable to hijack and get connection %s", debugPrevix, err)
+		f.log.Errorf("%s error: unable to upgrade: unable to hijack and get connection %s", debugPrefix, err)
 		return
 	}
 
-	conn := &rwConn{
-		Conn:      hijackedConn,
-		Reader:    io.MultiReader(rw),
-		BufWriter: newSettingsAckSwallowWriter(rw.Writer),
-	}
+	//f.log.Debugf("%s create the connection, this may be wrong", debugPrefix)
+	//conn := &rwConn{
+	//	Conn:      hijackedConn,
+	//	Reader:    io.MultiReader(rw),
+	//	BufWriter: newSettingsAckSwallowWriter(rw.Writer),
+	//}
 
-	defer conn.Close()
+	defer hijackedConn.Close()
 
-	session := spdy.NewServerSession(conn, &http.Server{})
+	// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
+
+	f.log.Debugf("%s create new session", debugPrefix)
+	session := spdy.NewServerSession(hijackedConn, &http.Server{})
+	f.log.Debugf("%s serve", debugPrefix)
+
 	session.Serve()
 }
 
