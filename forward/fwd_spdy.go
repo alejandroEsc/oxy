@@ -1,6 +1,7 @@
 package forward
 
 import (
+	"fmt"
 	//"bytes"
 	//"fmt"
 	//"io"
@@ -12,7 +13,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
 	//"github.com/amahi/spdy"
+	sspdy "github.com/SlyMarbo/spdy"
 	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 )
 
 const (
@@ -77,107 +80,49 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		return
 	}
 
-	upgrader := k8spdy.NewResponseUpgrader()
-	// Only the targetConn choose to CheckOrigin or not
-	//upgrader := gspdy.Upgrader{CheckOrigin: func(r *http.Request) bool {
-	//	return true
-	//}}
+	// upgrade the connection
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		errorMsg := fmt.Sprintf("unable to upgrade: unable to hijack response")
+		http.Error(w, errorMsg, http.StatusInternalServerError)
+		f.log.Errorf("%s error: unable to upgrade: unable to hijack response %s", debugPrevix, err)
+		return
+	}
 
-	utils.RemoveHeaders(resp.Header, WebsocketUpgradeHeaders...)
-	utils.CopyHeaders(resp.Header, w.Header())
+	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	upgrader.UpgradeResponse(w, req, nil)
-	//defer streamConnection.Close()
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		f.log.Errorf("%s error: unable to upgrade: unable to hijack and get connection %s", debugPrevix, err)
+		return
+	}
 
-	//session := spdy.NewServerSession(streamConnection., &http.Server{})
-	//session.Serve()
+	defer conn.Close()
 
+	// Send the connection accepted response.
+	res := new(http.Response)
+	res.Status = "200 Connection Established"
+	res.StatusCode = http.StatusOK
+	res.Proto = "HTTP/1.1"
+	res.ProtoMajor = 1
+	res.ProtoMinor = 1
+	if err = res.Write(conn); err != nil {
+		f.log.Errorf("Failed to send connection established message in ProxyConnections.", err)
+		return
+	}
 
-	//underlyingConn, err := upgrader.Upgrade(w, req, resp.Header)
-	//if err != nil {
-	//	f.log.Errorf("%s error: while upgrading connection : %v", debugPrevix, err)
-	//	return
-	//}
-	//defer func() {
-	//	f.log.Debugf("%s closing underlying connection", debugPrevix)
-	//	underlyingConn.Close()
-	//	targetConn.Close()
-	//	if f.websocketConnectionClosedHook != nil {
-	//		f.websocketConnectionClosedHook(req, underlyingConn.UnderlyingConn())
-	//	}
-	//}()
+	client, err := sspdy.NewClientConn(conn, nil, 3, 1)
 
-	//errClient := make(chan error, 1)
-	//errBackend := make(chan error, 1)
+	if err != nil {
+		f.log.Errorf("Error creating SPDY connection in ProxyConnections.", err)
+		return
+	}
 
+	go client.Run()
 
-	//replicateSPDYConn := func(dst, src *gspdy.Conn, errc chan error) {
-	//
-	//	forward := func(messageType int, reader io.Reader) error {
-	//		writer, err := dst.NextWriter(messageType)
-	//		if err != nil {
-	//			return err
-	//		}
-	//		_, err = io.Copy(writer, reader)
-	//		if err != nil {
-	//			return err
-	//		}
-	//		return writer.Close()
-	//	}
-	//
-	//	src.SetPingHandler(func(data string) error {
-	//		return forward(gspdy.PingMessage, bytes.NewReader([]byte(data)))
-	//	})
-	//
-	//	src.SetPongHandler(func(data string) error {
-	//		return forward(gspdy.PongMessage, bytes.NewReader([]byte(data)))
-	//	})
-	//
-	//	for {
-	//		msgType, reader, err := src.NextReader()
-	//
-	//		if err != nil {
-	//			m := gspdy.FormatCloseMessage(gspdy.CloseNormalClosure, fmt.Sprintf("%v", err))
-	//			if e, ok := err.(*gspdy.CloseError); ok {
-	//				if e.Code != gspdy.CloseNoStatusReceived {
-	//					m = nil
-	//					// Following codes are not valid on the wire so just close the
-	//					// underlying TCP connection without sending a close frame.
-	//					if e.Code != gspdy.CloseAbnormalClosure &&
-	//						e.Code != gspdy.CloseTLSHandshake {
-	//
-	//						m = gspdy.FormatCloseMessage(e.Code, e.Text)
-	//					}
-	//				}
-	//			}
-	//			errc <- err
-	//			if m != nil {
-	//				forward(gspdy.CloseMessage, bytes.NewReader([]byte(m)))
-	//			}
-	//			break
-	//		}
-	//		err = forward(msgType, reader)
-	//		if err != nil {
-	//			errc <- err
-	//			break
-	//		}
-	//	}
-	//}
-	//
-	//go replicateSPDYConn(underlyingConn, targetConn, errClient)
-	//go replicateSPDYConn(targetConn, underlyingConn, errBackend)
-	//
-	//var message string
-	//select {
-	//case err = <-errClient:
-	//	message = "vulcand/oxy/forward/spdy: Error when copying from backend to client: %v"
-	//case err = <-errBackend:
-	//	message = "vulcand/oxy/forward/spdy: Error when copying from client to backend: %v"
-	//
-	//}
-	//if e, ok := err.(*gspdy.CloseError); !ok || e.Code == gspdy.CloseAbnormalClosure {
-	//	f.log.Errorf(message, err)
-	//}
+	client.Close()
 }
 
 // copySPDYRequest makes a copy of the specified request.

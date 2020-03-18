@@ -3,6 +3,8 @@ module github.com/vulcand/oxy
 go 1.12
 
 require (
+	github.com/SlyMarbo/spdy v0.0.0-20140609194815-a0d2c56cf770 // indirect
+	github.com/SlyMarbo/spin v0.0.0-20140607095123-1c3ff10e10c8 // indirect
 	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd
 	github.com/docker/spdystream v0.0.0-20181023171402-6480d4af844c // indirect
 	github.com/elazarl/goproxy v0.0.0-20200315184450-1f3cb6622dad // indirect
