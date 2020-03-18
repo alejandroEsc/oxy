@@ -34,7 +34,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	if !ok {
 		errorMsg := fmt.Sprintf("unable to upgrade: unable to hijack response")
 		http.Error(w, errorMsg, http.StatusInternalServerError)
-		f.log.Errorf("%s error: unable to upgrade: unable to hijack response %s", debugPrevix, err)
+		f.log.Errorf("%s error: unable to upgrade: unable to hijack response", debugPrevix)
 		return
 	}
 
