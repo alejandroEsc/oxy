@@ -83,11 +83,11 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//	return true
 	//}}
 
-	//utils.RemoveHeaders(resp.Header, WebsocketUpgradeHeaders...)
-	//utils.CopyHeaders(resp.Header, w.Header())
+	utils.RemoveHeaders(resp.Header, WebsocketUpgradeHeaders...)
+	utils.CopyHeaders(resp.Header, w.Header())
 
-	streamConnection := upgrader.UpgradeResponse(w, req, nil)
-	defer streamConnection.Close()
+	upgrader.UpgradeResponse(w, req, nil)
+	//defer streamConnection.Close()
 
 	//session := spdy.NewServerSession(streamConnection., &http.Server{})
 	//session.Serve()
