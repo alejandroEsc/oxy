@@ -3,6 +3,8 @@ package forward
 import (
 	"bufio"
 	"context"
+	"mime/multipart"
+	"net/textproto"
 	"sync"
 
 	"io"
@@ -141,7 +143,7 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		}()
 	}
 
-	outreq := req.Clone(reqCtx)
+	outreq := Clone(req, reqCtx)
 	if req.ContentLength == 0 {
 		outreq.Body = nil // Issue 16036: nil Body for http.Transport retries
 	}
@@ -530,4 +532,81 @@ func shouldPanicOnCopyError(req *http.Request) bool {
 	// Otherwise act like Go 1.10 and earlier to not break
 	// existing tests.
 	return false
+}
+
+func Clone(r *http.Request, ctx context.Context) *http.Request {
+	if ctx == nil {
+		panic("nil context")
+	}
+	r2 := r.WithContext(ctx)
+	*r2 = *r
+	r2.URL = cloneURL(r.URL)
+	if r.Header != nil {
+		r2.Header = r.Header.Clone()
+	}
+	if r.Trailer != nil {
+		r2.Trailer = r.Trailer.Clone()
+	}
+	if s := r.TransferEncoding; s != nil {
+		s2 := make([]string, len(s))
+		copy(s2, s)
+		r2.TransferEncoding = s
+	}
+	r2.Form = cloneURLValues(r.Form)
+	r2.PostForm = cloneURLValues(r.PostForm)
+	r2.MultipartForm = cloneMultipartForm(r.MultipartForm)
+	return r2
+}
+
+func cloneURLValues(v url.Values) url.Values {
+	if v == nil {
+		return nil
+	}
+	// http.Header and url.Values have the same representation, so temporarily
+	// treat it like http.Header, which does have a clone:
+	return url.Values(http.Header(v).Clone())
+}
+
+func cloneURL(u *url.URL) *url.URL {
+	if u == nil {
+		return nil
+	}
+	u2 := new(url.URL)
+	*u2 = *u
+	if u.User != nil {
+		u2.User = new(url.Userinfo)
+		*u2.User = *u.User
+	}
+	return u2
+}
+
+func cloneMultipartForm(f *multipart.Form) *multipart.Form {
+	if f == nil {
+		return nil
+	}
+	f2 := &multipart.Form{
+		Value: (map[string][]string)(http.Header(f.Value).Clone()),
+	}
+	if f.File != nil {
+		m := make(map[string][]*multipart.FileHeader)
+		for k, vv := range f.File {
+			vv2 := make([]*multipart.FileHeader, len(vv))
+			for i, v := range vv {
+				vv2[i] = cloneMultipartFileHeader(v)
+			}
+			m[k] = vv2
+		}
+		f2.File = m
+	}
+	return f2
+}
+
+func cloneMultipartFileHeader(fh *multipart.FileHeader) *multipart.FileHeader {
+	if fh == nil {
+		return nil
+	}
+	fh2 := new(multipart.FileHeader)
+	*fh2 = *fh
+	fh2.Header = textproto.MIMEHeader(http.Header(fh.Header).Clone())
+	return fh2
 }
