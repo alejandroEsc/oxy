@@ -9,16 +9,18 @@ import (
 	//"fmt"
 	//"net/http/httputil"
 	"net/url"
+	"strings"
+
 	//"time"
 
 	//"net"
 	"net/http"
-	"strings"
+	//"strings"
 
 	//"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	//"k8s.io/apimachinery/pkg/util/httpstream"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	//sspdy "github.com/SlyMarbo/spdy"
 	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
@@ -71,7 +73,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 
 	upgrader := k8spdy.NewResponseUpgrader()
 
-	spdyConn := upgrader.UpgradeResponse(w, req, nil)
+	spdyConn := upgrader.UpgradeResponse(w, req, func(s httpstream.Stream, replySent <-chan struct{}) error {return nil})
 	defer spdyConn.Close()
 
 	// blocks until connection is done
