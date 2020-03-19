@@ -1,22 +1,14 @@
 package forward
 
 import (
-	//"bufio"
-	//"io"
-	//"net/http/httputil"
-	//"time"
-
-	//"fmt"
-	//"net/http/httputil"
+	"bufio"
+	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
-
-	//"time"
-
-	//"net"
-	"net/http"
-	//"strings"
 
 	//"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
@@ -41,7 +33,8 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	// INJECT THOSE HERE, MAYBE PART OF THE REQUEST?
 	// THEN WE NEED TO HAVE THE TRANSFER OF DATA TO HAPPEN.
 
-	f.handleViaStreams(w, req, ctx)
+	//f.handleViaStreams(w, req, ctx)
+	f.handleConnection(w, req, ctx)
 }
 
 func (f *httpForwarder) handleConnection(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
@@ -60,20 +53,32 @@ func (f *httpForwarder) handleConnection(w http.ResponseWriter, req *http.Reques
 
 	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	//hijacker, ok := w.(http.Hijacker)
-	//if !ok {
-	//	w.WriteHeader(http.StatusInternalServerError)
-	//	f.log.Debugf("%s unable to upgrade: unable to hijack response", debugPrefix)
-	//	return
-	//}
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		f.log.Debugf("%s unable to upgrade: unable to hijack response", debugPrefix)
+		return
+	}
 
+	conn, rw, err := hijacker.Hijack()
+	if err != nil {
+		f.log.Debugf("%s unable to upgrade: error hijacking response: %v", debugPrefix, err)
+		return
+	}
 
+	c := connWrapper{
+		Conn:      conn,
+		bufReader: rw.Reader,
+		bufWriter: rw.Writer,
+	}
+	streamChan := make(chan httpstream.Stream, 1)
+	spdyConn, err := k8spdy.NewServerConnection(c, streamReceived(streamChan))
+	if err != nil {
+		f.log.Debugf("%s unable to upgrade: error creating SPDY server connection: %v", debugPrefix, err)
+		return
+	}
 
-	//conn, _, err := hijacker.Hijack()
-	//if err != nil {
-	//	f.log.Debugf("%s unable to upgrade: error hijacking response: %v", debugPrefix, err)
-	//	return
-	//}
+	<- spdyConn.CloseChan()
 }
 
 func (f *httpForwarder) handleViaStreams(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
@@ -105,8 +110,6 @@ func streamReceived(streams chan httpstream.Stream) func(httpstream.Stream, <-ch
 		return nil
 	}
 }
-
-
 
 // copySPDYRequest makes a copy of the specified request.
 func (f *httpForwarder) copySPDYRequest(req *http.Request) (outReq *http.Request) {
@@ -184,5 +187,38 @@ func IsSPDYRequest(req *http.Request) bool {
 	}
 
 	return containsHeader(Connection, "upgrade") && containsHeader(Upgrade, "spdy/3.1")
+}
+
+// connWrapper is used to wrap a hijacked connection and its bufio.Reader. All
+// calls will be handled directly by the underlying net.Conn with the exception
+// of Read and Close calls, which will consider data in the bufio.Reader. This
+// ensures that data already inside the used bufio.Reader instance is also
+// read.
+type connWrapper struct {
+	net.Conn
+	closed    int32
+	bufReader *bufio.Reader
+	bufWriter *bufio.Writer
+}
+
+func (c connWrapper) Read(b []byte) (int, error) {
+	if atomic.LoadInt32(&c.closed) == 1 {
+		return 0, io.EOF
+	}
+	return c.bufReader.Read(b)
+}
+
+func (c connWrapper) Write(b []byte) (int, error) {
+	n, err := c.bufWriter.Write(b)
+	if err := c.bufWriter.Flush(); err != nil {
+		return 0, err
+	}
+	return n, err
+}
+
+func (c connWrapper) Close() error {
+	err := c.Conn.Close()
+	atomic.StoreInt32(&c.closed, 1)
+	return err
 }
 
