@@ -3,8 +3,8 @@ package forward
 import (
 	//"bufio"
 	"io"
-	"net/http/httputil"
-	"time"
+	//"net/http/httputil"
+	//"time"
 
 	//"net/http/httputil"
 	"net/url"
@@ -17,7 +17,7 @@ import (
 	//"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	"k8s.io/apimachinery/pkg/util/httpstream"
+	//"k8s.io/apimachinery/pkg/util/httpstream"
 	//sspdy "github.com/SlyMarbo/spdy"
 	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
