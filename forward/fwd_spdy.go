@@ -14,7 +14,7 @@ import (
 	//"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	//"k8s.io/apimachinery/pkg/util/httpstream"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	//sspdy "github.com/SlyMarbo/spdy"
 	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
@@ -34,6 +34,38 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	// INJECT THOSE HERE, MAYBE PART OF THE REQUEST?
 	// THEN WE NEED TO HAVE THE TRANSFER OF DATA TO HAPPEN.
 
+	//sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, true)
+	//
+	//resp, err := sRoundTripper.RoundTrip(req)
+	//if err != nil {
+	//	f.log.Debugf("%s roundtripper error: %s", debugPrefix, err)
+	//	return
+	//}
+	//
+	//conn, err := sRoundTripper.NewConnection(resp)
+	//if err != nil {
+	//	f.log.Debugf("%s getting a new connection error: %s", debugPrefix, err)
+	//	return
+	//}
+	//
+	//defer conn.Close()
+
+	//session := spdy.NewServerSession(conn, &http.Server{})
+	//f.log.Debugf("%s serve", debugPrefix)
+
+	//f.log.Debugf("%s Headers are: %v", debugPrefix, req.Header)
+	//
+	//f.log.Debugf("%s writting upgrade headers", debugPrefix)
+	// Upgrade Connection
+	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+
+	// the protocal stream version
+	for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
+		w.Header().Add(httpstream.HeaderProtocolVersion, p)
+	}
+	w.WriteHeader(http.StatusSwitchingProtocols)
+
 	sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, true)
 
 	resp, err := sRoundTripper.RoundTrip(req)
@@ -47,24 +79,8 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		f.log.Debugf("%s getting a new connection error: %s", debugPrefix, err)
 		return
 	}
-
 	defer conn.Close()
-
-	//session := spdy.NewServerSession(conn, &http.Server{})
-	//f.log.Debugf("%s serve", debugPrefix)
-
-	//f.log.Debugf("%s Headers are: %v", debugPrefix, req.Header)
-	//
-	//f.log.Debugf("%s writting upgrade headers", debugPrefix)
-	//// Upgrade Connection
-	//w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
-	//w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
-	//
-	//// the protocal stream version
-	//for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
-	//	w.Header().Add(httpstream.HeaderProtocolVersion, p)
-	//}
-	//w.WriteHeader(http.StatusSwitchingProtocols)
+	
 	//
 	//start := time.Now().UTC()
 	//outReq := f.copySPDYRequest(req)
@@ -196,17 +212,3 @@ func IsSPDYRequest(req *http.Request) bool {
 	return containsHeader(Connection, "upgrade") && containsHeader(Upgrade, "spdy/3.1")
 }
 
-// IsSPDYRequest determines if the specified HTTP request is a
-// SPDY/3.1 handshake request
-func requiresUpgradeSPDY(req *http.Request) bool {
-	containsHeader := func(name, value string) bool {
-		items := strings.Split(req.Header.Get(name), ",")
-		for _, item := range items {
-			if value == strings.ToLower(strings.TrimSpace(item)) {
-				return true
-			}
-		}
-		return false
-	}
-	return containsHeader(Connection, "upgrade") && containsHeader(Upgrade, "spdy/3.1")
-}
