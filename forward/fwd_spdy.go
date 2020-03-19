@@ -38,8 +38,6 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	// INJECT THOSE HERE, MAYBE PART OF THE REQUEST?
 	// THEN WE NEED TO HAVE THE TRANSFER OF DATA TO HAPPEN.
 
-	/
-
 	//session := spdy.NewServerSession(conn, &http.Server{})
 	//f.log.Debugf("%s serve", debugPrefix)
 
