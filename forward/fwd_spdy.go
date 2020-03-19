@@ -3,18 +3,18 @@ package forward
 import (
 	//"bufio"
 	"io"
-	"net/http/httputil"
+	//"net/http/httputil"
 	"net/url"
-	"time"
+	//"time"
 
 	//"net"
 	"net/http"
 	"strings"
 
-	//"github.com/amahi/spdy"
+	"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	"k8s.io/apimachinery/pkg/util/httpstream"
+	//"k8s.io/apimachinery/pkg/util/httpstream"
 	//sspdy "github.com/SlyMarbo/spdy"
 	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
@@ -27,75 +27,90 @@ const (
 func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
 
 	if f.log.GetLevel() >= log.DebugLevel {
-		defer f.log.Debugf("%s vulcand/oxy/forward/spdy: done", debugPrefix)
+		defer f.log.Debugf("%s - done - ", debugPrefix)
 	}
 
 	// SO WE NEED TO DIAL. GET THE STREAMING SUPPORT FROM THE INDIVIDUAL WE ARE DIALING
 	// INJECT THOSE HERE, MAYBE PART OF THE REQUEST?
 	// THEN WE NEED TO HAVE THE TRANSFER OF DATA TO HAPPEN.
 
-	f.log.Debugf("%s Headers are: %v", debugPrefix, req.Header)
+	sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, true)
 
-	f.log.Debugf("%s writting upgrade headers", debugPrefix)
-	// Upgrade Connection
-	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
-	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
-
-	// the protocal stream version
-	for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
-		w.Header().Add(httpstream.HeaderProtocolVersion, p)
-	}
-	//w.Header().Add(httpstream.HeaderProtocolVersion, "v4.channel.k8s.io")
-	//w.Header().Add(httpstream.HeaderProtocolVersion, "v3.channel.k8s.io")
-	//w.Header().Add(httpstream.HeaderProtocolVersion, "v2.channel.k8s.io")
-
-	w.WriteHeader(http.StatusSwitchingProtocols)
-
-	start := time.Now().UTC()
-	outReq := f.copySPDYRequest(req)
-
-	revproxy := httputil.ReverseProxy{
-		Director: func(r *http.Request) {
-			f.modifySPDYRequest(r, req.URL)
-		},
-		Transport:      f.roundTripper,
-		FlushInterval:  f.flushInterval,
-		ModifyResponse: f.modifyResponse,
-		BufferPool:     f.bufferPool,
+	resp, err := sRoundTripper.RoundTrip(req)
+	if err != nil {
+		f.log.Debugf("%s roundtripper error: %s", debugPrefix, err)
+		return
 	}
 
-	// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
-
-	f.log.Debugf("%s create new k8spdy connection", debugPrefix)
-	//session := spdy.NewServerSession(hijackedConn, &http.Server{})
-
-	if f.log.GetLevel() >= log.DebugLevel {
-		pw := utils.NewProxyWriter(w)
-		revproxy.ServeHTTP(pw, outReq)
-
-		if req.TLS != nil {
-			f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
-				req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start),
-				req.TLS.Version,
-				req.TLS.DidResume,
-				req.TLS.CipherSuite,
-				req.TLS.ServerName)
-		} else {
-			f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v",
-				req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start))
-		}
-	} else {
-		revproxy.ServeHTTP(w, outReq)
+	conn, err := sRoundTripper.NewConnection(resp)
+	if err != nil {
+		f.log.Debugf("%s getting a new connection error: %s", debugPrefix, err)
+		return
 	}
 
-	for key := range w.Header() {
-		if strings.HasPrefix(key, http.TrailerPrefix) {
-			if fl, ok := w.(http.Flusher); ok {
-				fl.Flush()
-			}
-			break
-		}
-	}
+	defer conn.Close()
+
+	//session := spdy.NewServerSession(conn, &http.Server{})
+	//f.log.Debugf("%s serve", debugPrefix)
+
+	//f.log.Debugf("%s Headers are: %v", debugPrefix, req.Header)
+	//
+	//f.log.Debugf("%s writting upgrade headers", debugPrefix)
+	//// Upgrade Connection
+	//w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	//w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+	//
+	//// the protocal stream version
+	//for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
+	//	w.Header().Add(httpstream.HeaderProtocolVersion, p)
+	//}
+	//w.WriteHeader(http.StatusSwitchingProtocols)
+	//
+	//start := time.Now().UTC()
+	//outReq := f.copySPDYRequest(req)
+	//
+	//revproxy := httputil.ReverseProxy{
+	//	Director: func(r *http.Request) {
+	//		f.modifySPDYRequest(r, req.URL)
+	//	},
+	//	Transport:      f.roundTripper,
+	//	FlushInterval:  f.flushInterval,
+	//	ModifyResponse: f.modifyResponse,
+	//	BufferPool:     f.bufferPool,
+	//}
+	//
+	//// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
+	//
+	//f.log.Debugf("%s create new k8spdy connection", debugPrefix)
+	////session := spdy.NewServerSession(hijackedConn, &http.Server{})
+	//
+	//if f.log.GetLevel() >= log.DebugLevel {
+	//	pw := utils.NewProxyWriter(w)
+	//	revproxy.ServeHTTP(pw, outReq)
+	//
+	//	if req.TLS != nil {
+	//		f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
+	//			req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start),
+	//			req.TLS.Version,
+	//			req.TLS.DidResume,
+	//			req.TLS.CipherSuite,
+	//			req.TLS.ServerName)
+	//	} else {
+	//		f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v",
+	//			req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start))
+	//	}
+	//} else {
+	//	revproxy.ServeHTTP(w, outReq)
+	//}
+	//
+	//for key := range w.Header() {
+	//	if strings.HasPrefix(key, http.TrailerPrefix) {
+	//		if fl, ok := w.(http.Flusher); ok {
+	//			fl.Flush()
+	//		}
+	//		break
+	//	}
+	//}
 }
 
 // bufWriter is a Writer interface that also has a Flush method.
