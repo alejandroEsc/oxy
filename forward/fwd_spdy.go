@@ -3,6 +3,9 @@ package forward
 import (
 	//"bufio"
 	"io"
+	"net/http/httputil"
+	"time"
+
 	//"net/http/httputil"
 	"net/url"
 	//"time"
@@ -65,68 +68,68 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		w.Header().Add(httpstream.HeaderProtocolVersion, p)
 	}
 	w.WriteHeader(http.StatusSwitchingProtocols)
+	//
+	//sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, false)
+	//
+	//resp, err := sRoundTripper.RoundTrip(req)
+	//if err != nil {
+	//	f.log.Debugf("%s roundtripper error: %s", debugPrefix, err)
+	//	return
+	//}
+	//
+	//conn, err := sRoundTripper.NewConnection(resp)
+	//if err != nil {
+	//	f.log.Debugf("%s getting a new connection error: %s", debugPrefix, err)
+	//	return
+	//}
+	//defer conn.Close()
 
-	sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, false)
+	//
+	start := time.Now().UTC()
+	outReq := f.copySPDYRequest(req)
 
-	resp, err := sRoundTripper.RoundTrip(req)
-	if err != nil {
-		f.log.Debugf("%s roundtripper error: %s", debugPrefix, err)
-		return
+	revproxy := httputil.ReverseProxy{
+		Director: func(r *http.Request) {
+			f.modifySPDYRequest(r, req.URL)
+		},
+		Transport:      f.roundTripper,
+		FlushInterval:  f.flushInterval,
+		ModifyResponse: f.modifyResponse,
+		BufferPool:     f.bufferPool,
 	}
 
-	conn, err := sRoundTripper.NewConnection(resp)
-	if err != nil {
-		f.log.Debugf("%s getting a new connection error: %s", debugPrefix, err)
-		return
-	}
-	defer conn.Close()
+	// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
 
-	//
-	//start := time.Now().UTC()
-	//outReq := f.copySPDYRequest(req)
-	//
-	//revproxy := httputil.ReverseProxy{
-	//	Director: func(r *http.Request) {
-	//		f.modifySPDYRequest(r, req.URL)
-	//	},
-	//	Transport:      f.roundTripper,
-	//	FlushInterval:  f.flushInterval,
-	//	ModifyResponse: f.modifyResponse,
-	//	BufferPool:     f.bufferPool,
-	//}
-	//
-	//// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
-	//
-	//f.log.Debugf("%s create new k8spdy connection", debugPrefix)
-	////session := spdy.NewServerSession(hijackedConn, &http.Server{})
-	//
-	//if f.log.GetLevel() >= log.DebugLevel {
-	//	pw := utils.NewProxyWriter(w)
-	//	revproxy.ServeHTTP(pw, outReq)
-	//
-	//	if req.TLS != nil {
-	//		f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
-	//			req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start),
-	//			req.TLS.Version,
-	//			req.TLS.DidResume,
-	//			req.TLS.CipherSuite,
-	//			req.TLS.ServerName)
-	//	} else {
-	//		f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v",
-	//			req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start))
-	//	}
-	//} else {
-	//	revproxy.ServeHTTP(w, outReq)
-	//}
-	//
-	//for key := range w.Header() {
-	//	if strings.HasPrefix(key, http.TrailerPrefix) {
-	//		if fl, ok := w.(http.Flusher); ok {
-	//			fl.Flush()
-	//		}
-	//		break
-	//	}
-	//}
+	f.log.Debugf("%s create new k8spdy connection", debugPrefix)
+	//session := spdy.NewServerSession(hijackedConn, &http.Server{})
+
+	if f.log.GetLevel() >= log.DebugLevel {
+		pw := utils.NewProxyWriter(w)
+		revproxy.ServeHTTP(pw, outReq)
+
+		if req.TLS != nil {
+			f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
+				req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start),
+				req.TLS.Version,
+				req.TLS.DidResume,
+				req.TLS.CipherSuite,
+				req.TLS.ServerName)
+		} else {
+			f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v",
+				req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start))
+		}
+	} else {
+		revproxy.ServeHTTP(w, outReq)
+	}
+
+	for key := range w.Header() {
+		if strings.HasPrefix(key, http.TrailerPrefix) {
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+			break
+		}
+	}
 }
 
 // bufWriter is a Writer interface that also has a Flush method.
