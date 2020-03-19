@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	//"github.com/amahi/spdy"
+	"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
 	"k8s.io/apimachinery/pkg/util/httpstream"
@@ -71,14 +71,18 @@ func (f *httpForwarder) handleConnection(w http.ResponseWriter, req *http.Reques
 		bufReader: rw.Reader,
 		bufWriter: rw.Writer,
 	}
-	streamChan := make(chan httpstream.Stream, 1)
-	spdyConn, err := k8spdy.NewServerConnection(c, streamReceived(streamChan))
-	if err != nil {
-		f.log.Debugf("%s unable to upgrade: error creating SPDY server connection: %v", debugPrefix, err)
-		return
-	}
+	//streamChan := make(chan httpstream.Stream, 1)
+	//spdyConn, err := k8spdy.NewServerConnection(c, streamReceived(streamChan))
+	//if err != nil {
+	//	f.log.Debugf("%s unable to upgrade: error creating SPDY server connection: %v", debugPrefix, err)
+	//	return
+	//}
+	//defer spdyConn.Close()
+	//
+	//<- spdyConn.CloseChan()
 
-	<- spdyConn.CloseChan()
+	session := spdy.NewServerSession(c, &http.Server{})
+	session.Serve()
 }
 
 func (f *httpForwarder) handleViaStreams(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
