@@ -60,14 +60,21 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//
 	//f.log.Debugf("%s writting upgrade headers", debugPrefix)
 	// Upgrade Connection
-	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
-	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+	//w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	//w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+	//
+	//// the protocal stream version
+	//for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
+	//	w.Header().Add(httpstream.HeaderProtocolVersion, p)
+	//}
+	//w.WriteHeader(http.StatusSwitchingProtocols)
 
-	// the protocal stream version
-	for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
-		w.Header().Add(httpstream.HeaderProtocolVersion, p)
-	}
-	w.WriteHeader(http.StatusSwitchingProtocols)
+	upgrader := k8spdy.NewResponseUpgrader()
+
+	conn := upgrader.UpgradeResponse(w, req, nil)
+
+	defer conn.Close()
+
 	//
 	//sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, false)
 	//
@@ -85,51 +92,51 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//defer conn.Close()
 
 	//
-	start := time.Now().UTC()
-	outReq := f.copySPDYRequest(req)
-
-	revproxy := httputil.ReverseProxy{
-		Director: func(r *http.Request) {
-			f.modifySPDYRequest(r, req.URL)
-		},
-		Transport:      f.roundTripper,
-		FlushInterval:  f.flushInterval,
-		ModifyResponse: f.modifyResponse,
-		BufferPool:     f.bufferPool,
-	}
-
-	// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
-
-	f.log.Debugf("%s create new k8spdy connection", debugPrefix)
-	//session := spdy.NewServerSession(hijackedConn, &http.Server{})
-
-	if f.log.GetLevel() >= log.DebugLevel {
-		pw := utils.NewProxyWriter(w)
-		revproxy.ServeHTTP(pw, outReq)
-
-		if req.TLS != nil {
-			f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
-				req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start),
-				req.TLS.Version,
-				req.TLS.DidResume,
-				req.TLS.CipherSuite,
-				req.TLS.ServerName)
-		} else {
-			f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v",
-				req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start))
-		}
-	} else {
-		revproxy.ServeHTTP(w, outReq)
-	}
-
-	for key := range w.Header() {
-		if strings.HasPrefix(key, http.TrailerPrefix) {
-			if fl, ok := w.(http.Flusher); ok {
-				fl.Flush()
-			}
-			break
-		}
-	}
+	//start := time.Now().UTC()
+	//outReq := f.copySPDYRequest(req)
+	//
+	//revproxy := httputil.ReverseProxy{
+	//	Director: func(r *http.Request) {
+	//		f.modifySPDYRequest(r, req.URL)
+	//	},
+	//	Transport:      f.roundTripper,
+	//	FlushInterval:  f.flushInterval,
+	//	ModifyResponse: f.modifyResponse,
+	//	BufferPool:     f.bufferPool,
+	//}
+	//
+	//// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
+	//
+	//f.log.Debugf("%s create new k8spdy connection", debugPrefix)
+	////session := spdy.NewServerSession(hijackedConn, &http.Server{})
+	//
+	//if f.log.GetLevel() >= log.DebugLevel {
+	//	pw := utils.NewProxyWriter(w)
+	//	revproxy.ServeHTTP(pw, outReq)
+	//
+	//	if req.TLS != nil {
+	//		f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
+	//			req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start),
+	//			req.TLS.Version,
+	//			req.TLS.DidResume,
+	//			req.TLS.CipherSuite,
+	//			req.TLS.ServerName)
+	//	} else {
+	//		f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v",
+	//			req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start))
+	//	}
+	//} else {
+	//	revproxy.ServeHTTP(w, outReq)
+	//}
+	//
+	//for key := range w.Header() {
+	//	if strings.HasPrefix(key, http.TrailerPrefix) {
+	//		if fl, ok := w.(http.Flusher); ok {
+	//			fl.Flush()
+	//		}
+	//		break
+	//	}
+	//}
 }
 
 // bufWriter is a Writer interface that also has a Flush method.
@@ -212,6 +219,7 @@ func IsSPDYRequest(req *http.Request) bool {
 		}
 		return false
 	}
+
 	return containsHeader(Connection, "upgrade") && containsHeader(Upgrade, "spdy/3.1")
 }
 
