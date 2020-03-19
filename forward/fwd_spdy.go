@@ -94,38 +94,6 @@ func (f *httpForwarder) handleViaConnection(w http.ResponseWriter, req *http.Req
 func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
 	f.log.Debugf("%s writting upgrade headers", debugPrefix)
 
-	//// Upgrade Connection
-	//w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
-	//w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
-	//
-	//// the protocal stream version
-	//f.log.Debugf("%s supported protocol versions: %v", debugPrefix, req.Header[httpstream.HeaderProtocolVersion])
-	//
-	//for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
-	//	w.Header().Add(httpstream.HeaderProtocolVersion, p)
-	//}
-	//
-	//w.WriteHeader(http.StatusSwitchingProtocols)
-	//
-	//hijacker, ok := w.(http.Hijacker)
-	//if !ok {
-	//	w.WriteHeader(http.StatusInternalServerError)
-	//	f.log.Debugf("%s unable to upgrade: unable to hijack response", debugPrefix)
-	//	return
-	//}
-	//
-	//conn, rw, err := hijacker.Hijack()
-	//if err != nil {
-	//	f.log.Debugf("%s unable to upgrade: error hijacking response: %v", debugPrefix, err)
-	//	return
-	//}
-	//
-	//c := connWrapper{
-	//	Conn:      conn,
-	//	bufReader: rw.Reader,
-	//	bufWriter: rw.Writer,
-	//}
-
 	reqCtx := req.Context()
 	if cn, ok := w.(http.CloseNotifier); ok {
 		var cancel context.CancelFunc
@@ -277,7 +245,6 @@ func (f *httpForwarder) copySPDYRequest(req *http.Request) (outReq *http.Request
 	// gorilla websocket use this header to set the request.Host tested in checkSameOrigin
 	outReq.Header.Set("Host", outReq.Host)
 	utils.CopyHeaders(outReq.Header, req.Header)
-	utils.RemoveHeaders(outReq.Header, WebsocketDialHeaders...)
 
 	if f.rewriter != nil {
 		f.rewriter.Rewrite(outReq)
