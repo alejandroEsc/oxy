@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/amahi/spdy"
+	//"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
 	//"k8s.io/apimachinery/pkg/util/httpstream"
