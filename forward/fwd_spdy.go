@@ -15,10 +15,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/amahi/spdy"
+	//"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	"k8s.io/apimachinery/pkg/util/httpstream"
+	//"k8s.io/apimachinery/pkg/util/httpstream"
 	//sspdy "github.com/SlyMarbo/spdy"
 	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
@@ -38,21 +38,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	// INJECT THOSE HERE, MAYBE PART OF THE REQUEST?
 	// THEN WE NEED TO HAVE THE TRANSFER OF DATA TO HAPPEN.
 
-	//sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, true)
-	//
-	//resp, err := sRoundTripper.RoundTrip(req)
-	//if err != nil {
-	//	f.log.Debugf("%s roundtripper error: %s", debugPrefix, err)
-	//	return
-	//}
-	//
-	//conn, err := sRoundTripper.NewConnection(resp)
-	//if err != nil {
-	//	f.log.Debugf("%s getting a new connection error: %s", debugPrefix, err)
-	//	return
-	//}
-	//
-	//defer conn.Close()
+	/
 
 	//session := spdy.NewServerSession(conn, &http.Server{})
 	//f.log.Debugf("%s serve", debugPrefix)
@@ -61,38 +47,37 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//
 	//f.log.Debugf("%s writting upgrade headers", debugPrefix)
 
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		w.WriteHeader(http.StatusInternalServerError)
-		f.log.Debugf("%s unable to upgrade: unable to hijack response", debugPrefix)
-		return
-	}
+	//hijacker, ok := w.(http.Hijacker)
+	//if !ok {
+	//	w.WriteHeader(http.StatusInternalServerError)
+	//	f.log.Debugf("%s unable to upgrade: unable to hijack response", debugPrefix)
+	//	return
+	//}
 
 	// Upgrade Connection
-	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
-	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
-	//
-	//// the protocal stream version
-	for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
-		w.Header().Add(httpstream.HeaderProtocolVersion, p)
-	}
-	w.WriteHeader(http.StatusSwitchingProtocols)
+	//w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	//w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+	////
+	////// the protocal stream version
+	//for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
+	//	w.Header().Add(httpstream.HeaderProtocolVersion, p)
+	//}
+	//w.WriteHeader(http.StatusSwitchingProtocols)
 
 
-	conn, _, err := hijacker.Hijack()
-	if err != nil {
-		f.log.Debugf("%s unable to upgrade: error hijacking response: %v", debugPrefix, err)
-		return
-	}
+	//conn, _, err := hijacker.Hijack()
+	//if err != nil {
+	//	f.log.Debugf("%s unable to upgrade: error hijacking response: %v", debugPrefix, err)
+	//	return
+	//}
 
-	//upgrader := k8spdy.NewResponseUpgrader()
-	//
-	//conn := upgrader.UpgradeResponse(w, req, nil)
+	upgrader := k8spdy.NewResponseUpgrader()
 
-	session := spdy.NewServerSession(conn, &http.Server{})
-	session.Serve()
+	spdyConn := upgrader.UpgradeResponse(w, req, nil)
+	defer spdyConn.Close()
 
-	defer conn.Close()
+	// blocks until connection is done
+	<- spdyConn.CloseChan()
 
 	//
 	//sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, false)
