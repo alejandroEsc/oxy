@@ -66,7 +66,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	}
 	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, true)
+	sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, false)
 
 	resp, err := sRoundTripper.RoundTrip(req)
 	if err != nil {
@@ -80,7 +80,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		return
 	}
 	defer conn.Close()
-	
+
 	//
 	//start := time.Now().UTC()
 	//outReq := f.copySPDYRequest(req)
