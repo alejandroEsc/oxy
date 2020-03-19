@@ -2,10 +2,11 @@ package forward
 
 import (
 	//"bufio"
-	"io"
+	//"io"
 	//"net/http/httputil"
 	//"time"
 
+	"fmt"
 	//"net/http/httputil"
 	"net/url"
 	//"time"
@@ -14,10 +15,10 @@ import (
 	"net/http"
 	"strings"
 
-	//"github.com/amahi/spdy"
+	"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
-	//"k8s.io/apimachinery/pkg/util/httpstream"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	//sspdy "github.com/SlyMarbo/spdy"
 	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 )
@@ -59,19 +60,37 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//f.log.Debugf("%s Headers are: %v", debugPrefix, req.Header)
 	//
 	//f.log.Debugf("%s writting upgrade headers", debugPrefix)
+
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		f.log.Debugf("%s unable to upgrade: unable to hijack response", debugPrefix)
+		return
+	}
+
 	// Upgrade Connection
-	//w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
-	//w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
 	//
 	//// the protocal stream version
-	//for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
-	//	w.Header().Add(httpstream.HeaderProtocolVersion, p)
-	//}
-	//w.WriteHeader(http.StatusSwitchingProtocols)
+	for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
+		w.Header().Add(httpstream.HeaderProtocolVersion, p)
+	}
+	w.WriteHeader(http.StatusSwitchingProtocols)
 
-	upgrader := k8spdy.NewResponseUpgrader()
 
-	conn := upgrader.UpgradeResponse(w, req, nil)
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		f.log.Debugf("%s unable to upgrade: error hijacking response: %v", debugPrefix, err)
+		return
+	}
+
+	//upgrader := k8spdy.NewResponseUpgrader()
+	//
+	//conn := upgrader.UpgradeResponse(w, req, nil)
+
+	session := spdy.NewServerSession(conn, &http.Server{})
+	session.Serve()
 
 	defer conn.Close()
 
@@ -137,12 +156,6 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//		break
 	//	}
 	//}
-}
-
-// bufWriter is a Writer interface that also has a Flush method.
-type bufWriter interface {
-	io.Writer
-	Flush() error
 }
 
 // copySPDYRequest makes a copy of the specified request.
