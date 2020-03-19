@@ -10,6 +10,7 @@ import (
 	//"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 
 	//"time"
 
@@ -40,12 +41,24 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	// INJECT THOSE HERE, MAYBE PART OF THE REQUEST?
 	// THEN WE NEED TO HAVE THE TRANSFER OF DATA TO HAPPEN.
 
-	//session := spdy.NewServerSession(conn, &http.Server{})
-	//f.log.Debugf("%s serve", debugPrefix)
+	f.handleViaStreams(w, req, ctx)
+}
 
-	//f.log.Debugf("%s Headers are: %v", debugPrefix, req.Header)
-	//
-	//f.log.Debugf("%s writting upgrade headers", debugPrefix)
+func (f *httpForwarder) handleConnection(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
+	f.log.Debugf("%s writting upgrade headers", debugPrefix)
+
+	// Upgrade Connection
+	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
+	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
+
+	// the protocal stream version
+	f.log.Debugf("%s supported protocol versions: %v", debugPrefix, req.Header[httpstream.HeaderProtocolVersion])
+
+	for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
+		w.Header().Add(httpstream.HeaderProtocolVersion, p)
+	}
+
+	w.WriteHeader(http.StatusSwitchingProtocols)
 
 	//hijacker, ok := w.(http.Hijacker)
 	//if !ok {
@@ -54,15 +67,6 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//	return
 	//}
 
-	// Upgrade Connection
-	//w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
-	//w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
-	////
-	////// the protocal stream version
-	//for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
-	//	w.Header().Add(httpstream.HeaderProtocolVersion, p)
-	//}
-	//w.WriteHeader(http.StatusSwitchingProtocols)
 
 
 	//conn, _, err := hijacker.Hijack()
@@ -70,78 +74,39 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 	//	f.log.Debugf("%s unable to upgrade: error hijacking response: %v", debugPrefix, err)
 	//	return
 	//}
+}
+
+func (f *httpForwarder) handleViaStreams(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
+	streamChan := make(chan httpstream.Stream, 1)
 
 	upgrader := k8spdy.NewResponseUpgrader()
 
-	spdyConn := upgrader.UpgradeResponse(w, req, func(s httpstream.Stream, replySent <-chan struct{}) error {return nil})
+	spdyConn := upgrader.UpgradeResponse(w, req, streamReceived(streamChan))
+	if spdyConn == nil {
+		return
+	}
 	defer spdyConn.Close()
 
+	h := &StreamHandler{
+		conn:                  spdyConn,
+		streamChan:            streamChan,
+		streamPairs:           make(map[string]*StreamPair),
+		streamCreationTimeout: 1*time.Minute,
+	}
+	h.run()
+
 	// blocks until connection is done
-	<- spdyConn.CloseChan()
-
-	//
-	//sRoundTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, false)
-	//
-	//resp, err := sRoundTripper.RoundTrip(req)
-	//if err != nil {
-	//	f.log.Debugf("%s roundtripper error: %s", debugPrefix, err)
-	//	return
-	//}
-	//
-	//conn, err := sRoundTripper.NewConnection(resp)
-	//if err != nil {
-	//	f.log.Debugf("%s getting a new connection error: %s", debugPrefix, err)
-	//	return
-	//}
-	//defer conn.Close()
-
-	//
-	//start := time.Now().UTC()
-	//outReq := f.copySPDYRequest(req)
-	//
-	//revproxy := httputil.ReverseProxy{
-	//	Director: func(r *http.Request) {
-	//		f.modifySPDYRequest(r, req.URL)
-	//	},
-	//	Transport:      f.roundTripper,
-	//	FlushInterval:  f.flushInterval,
-	//	ModifyResponse: f.modifyResponse,
-	//	BufferPool:     f.bufferPool,
-	//}
-	//
-	//// HERE we may want instead to have a reverse proxy, which we should look into doing that rather then serving this
-	//
-	//f.log.Debugf("%s create new k8spdy connection", debugPrefix)
-	////session := spdy.NewServerSession(hijackedConn, &http.Server{})
-	//
-	//if f.log.GetLevel() >= log.DebugLevel {
-	//	pw := utils.NewProxyWriter(w)
-	//	revproxy.ServeHTTP(pw, outReq)
-	//
-	//	if req.TLS != nil {
-	//		f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v tls:version: %x, tls:resume:%t, tls:csuite:%x, tls:server:%v",
-	//			req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start),
-	//			req.TLS.Version,
-	//			req.TLS.DidResume,
-	//			req.TLS.CipherSuite,
-	//			req.TLS.ServerName)
-	//	} else {
-	//		f.log.Debugf("vulcand/oxy/forward/http: Round trip: %v, code: %v, Length: %v, duration: %v",
-	//			req.URL, pw.StatusCode(), pw.GetLength(), time.Now().UTC().Sub(start))
-	//	}
-	//} else {
-	//	revproxy.ServeHTTP(w, outReq)
-	//}
-	//
-	//for key := range w.Header() {
-	//	if strings.HasPrefix(key, http.TrailerPrefix) {
-	//		if fl, ok := w.(http.Flusher); ok {
-	//			fl.Flush()
-	//		}
-	//		break
-	//	}
-	//}
+	//<- spdyConn.CloseChan()
 }
+
+func streamReceived(streams chan httpstream.Stream) func(httpstream.Stream, <-chan struct{}) error {
+	return func(stream httpstream.Stream, replySent <-chan struct{}) error {
+		streams <- stream
+		return nil
+	}
+}
+
+
 
 // copySPDYRequest makes a copy of the specified request.
 func (f *httpForwarder) copySPDYRequest(req *http.Request) (outReq *http.Request) {
