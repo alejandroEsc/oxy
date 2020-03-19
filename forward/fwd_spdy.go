@@ -30,15 +30,25 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 		defer f.log.Debugf("%s vulcand/oxy/forward/spdy: done", debugPrefix)
 	}
 
+	// SO WE NEED TO DIAL. GET THE STREAMING SUPPORT FROM THE INDIVIDUAL WE ARE DIALING
+	// INJECT THOSE HERE, MAYBE PART OF THE REQUEST?
+	// THEN WE NEED TO HAVE THE TRANSFER OF DATA TO HAPPEN.
+
+	f.log.Debugf("%s Headers are: %v", debugPrefix, req.Header)
 
 	f.log.Debugf("%s writting upgrade headers", debugPrefix)
 	// Upgrade Connection
 	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
 	w.Header().Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
-	w.Header().Add(httpstream.HeaderProtocolVersion, "v4.channel.k8s.io")
-	w.Header().Add(httpstream.HeaderProtocolVersion, "v3.channel.k8s.io")
-	w.Header().Add(httpstream.HeaderProtocolVersion, "v2.channel.k8s.io")
-	w.Header().Add(httpstream.HeaderProtocolVersion, "channel.k8s.io")
+
+	// the protocal stream version
+	for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
+		w.Header().Add(httpstream.HeaderProtocolVersion, p)
+	}
+	//w.Header().Add(httpstream.HeaderProtocolVersion, "v4.channel.k8s.io")
+	//w.Header().Add(httpstream.HeaderProtocolVersion, "v3.channel.k8s.io")
+	//w.Header().Add(httpstream.HeaderProtocolVersion, "v2.channel.k8s.io")
+
 	w.WriteHeader(http.StatusSwitchingProtocols)
 
 	start := time.Now().UTC()
