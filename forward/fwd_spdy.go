@@ -134,10 +134,11 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		outReq.Header.Set("X-Forwarded-For", clientIP)
 	}
 
-	spdyRountTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, true)
+	spdyRountTripper := k8spdy.NewRoundTripper(f.tlsClientConfig, true)
 
 	res, err := spdyRountTripper.RoundTrip(outReq)
 	if err != nil {
+		f.log.Debugf("%s error retrieving response: %s", debugPrefix, err)
 		return
 	}
 
