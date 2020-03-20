@@ -118,7 +118,8 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		outReq.Header = make(http.Header) // Issue 33142: historical behavior was to always allocate
 	}
 
-	f.modifySPDYRequest(outReq, req.URL)
+	//f.modifySPDYRequest(outReq, req.URL)
+	f.modifyRequest(outReq, req.URL)
 	outReq.Close = false
 
 
