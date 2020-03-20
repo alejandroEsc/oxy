@@ -17,6 +17,7 @@ import (
 	"github.com/amahi/spdy"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/utils"
+	"golang.org/x/net/http/httpguts"
 	"k8s.io/apimachinery/pkg/util/httpstream"
 	//sspdy "github.com/SlyMarbo/spdy"
 	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
@@ -43,7 +44,7 @@ func (f *httpForwarder) serveSPDY(w http.ResponseWriter, req *http.Request, ctx 
 }
 
 func (f *httpForwarder) handleViaConnection(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
-	f.log.Debugf("%s writting upgrade headers", debugPrefix)
+	f.log.Debugf("%s handleViaConnection", debugPrefix)
 
 	// Upgrade Connection
 	w.Header().Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
@@ -92,7 +93,7 @@ func (f *httpForwarder) handleViaConnection(w http.ResponseWriter, req *http.Req
 }
 
 func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
-	f.log.Debugf("%s writting upgrade headers", debugPrefix)
+	f.log.Debugf("%s handleViaReverseProxy", debugPrefix)
 
 	reqCtx := req.Context()
 	if cn, ok := w.(http.CloseNotifier); ok {
@@ -136,6 +137,19 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 	res, err := spdyRountTripper.RoundTrip(outReq)
 	if err != nil {
 		return
+	}
+
+
+	// Deal with 101 Switching Protocols responses: (WebSocket, h2c, etc)
+	if res.StatusCode == http.StatusSwitchingProtocols {
+		handleUpgradeResponse(w, outReq, res)
+		return
+	}
+
+	removeConnectionHeaders(res.Header)
+
+	for _, h := range hopHeaders {
+		res.Header.Del(h)
 	}
 
 	copyHeader(w.Header(), res.Header)
@@ -220,38 +234,6 @@ func streamReceived(streams chan httpstream.Stream) func(httpstream.Stream, <-ch
 	}
 }
 
-// copySPDYRequest makes a copy of the specified request.
-func (f *httpForwarder) copySPDYRequest(req *http.Request) (outReq *http.Request) {
-	outReq = new(http.Request)
-	*outReq = *req // includes shallow copies of maps, but we handle this below
-
-	outReq.URL = utils.CopyURL(req.URL)
-	outReq.URL.Scheme = req.URL.Scheme
-
-	u := f.getUrlFromRequest(outReq)
-
-	outReq.URL.Path = u.Path
-	outReq.URL.RawPath = u.RawPath
-	outReq.URL.RawQuery = u.RawQuery
-	outReq.RequestURI = "" // Outgoing request should not have RequestURI
-
-	outReq.URL.Host = req.URL.Host
-	if !f.passHost {
-		outReq.Host = req.URL.Host
-	}
-
-	outReq.Header = make(http.Header)
-
-	// gorilla websocket use this header to set the request.Host tested in checkSameOrigin
-	outReq.Header.Set("Host", outReq.Host)
-	utils.CopyHeaders(outReq.Header, req.Header)
-
-	if f.rewriter != nil {
-		f.rewriter.Rewrite(outReq)
-	}
-	return outReq
-}
-
 // Modify the request to handle the target URL
 func (f *httpForwarder) modifySPDYRequest(outReq *http.Request, target *url.URL) {
 	outReq.URL = utils.CopyURL(outReq.URL)
@@ -265,10 +247,10 @@ func (f *httpForwarder) modifySPDYRequest(outReq *http.Request, target *url.URL)
 	outReq.URL.RawQuery = u.RawQuery
 	outReq.RequestURI = "" // Outgoing request should not have RequestURI
 
-	//outReq.Proto = "SPDY/3.1"
-	//outReq.ProtoMajor = 3
-	//outReq.ProtoMinor = 1
-	//
+	outReq.Proto = "SPDY/3.1"
+	outReq.ProtoMajor = 3
+	outReq.ProtoMinor = 1
+
 	if f.rewriter != nil {
 		f.rewriter.Rewrite(outReq)
 	}
@@ -498,3 +480,73 @@ func shouldPanicOnCopyError(req *http.Request) bool {
 	// existing tests.
 	return false
 }
+
+func upgradeType(h http.Header) string {
+	if !httpguts.HeaderValuesContainsToken(h["Connection"], "Upgrade") {
+		return ""
+	}
+	return strings.ToLower(h.Get("Upgrade"))
+}
+
+func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.Response) {
+
+	reqUpType := upgradeType(req.Header)
+	resUpType := upgradeType(res.Header)
+	if reqUpType != resUpType {
+		log.Debugf("backend tried to switch protocol %q when %q was requested", resUpType, reqUpType)
+		return
+	}
+
+	copyHeader(res.Header, rw.Header())
+
+	hj, ok := rw.(http.Hijacker)
+	if !ok {
+		log.Debugf("can't switch protocols using non-Hijacker ResponseWriter type %T", rw)
+		return
+	}
+	backConn, ok := res.Body.(io.ReadWriteCloser)
+	if !ok {
+		log.Debugf("internal error: 101 switching protocols response with non-writable body")
+		return
+	}
+	defer backConn.Close()
+	conn, brw, err := hj.Hijack()
+	if err != nil {
+		log.Debugf("Hijack failed on protocol switch: %v", err)
+		return
+	}
+	defer conn.Close()
+	res.Body = nil // so res.Write only writes the headers; we have res.Body in backConn above
+	if err := res.Write(brw); err != nil {
+		log.Debugf("response write: %v", err)
+		return
+	}
+	if err := brw.Flush(); err != nil {
+		log.Debugf("response flush: %v", err)
+		return
+	}
+	errc := make(chan error, 1)
+	spc := switchProtocolCopier{user: conn, backend: backConn}
+	go spc.copyToBackend(errc)
+	go spc.copyFromBackend(errc)
+	<-errc
+	return
+}
+
+// switchProtocolCopier exists so goroutines proxying data back and
+// forth have nice names in stacks.
+type switchProtocolCopier struct {
+	user, backend io.ReadWriter
+}
+
+func (c switchProtocolCopier) copyFromBackend(errc chan<- error) {
+	_, err := io.Copy(c.user, c.backend)
+	errc <- err
+}
+
+func (c switchProtocolCopier) copyToBackend(errc chan<- error) {
+	_, err := io.Copy(c.backend, c.user)
+	errc <- err
+}
+
+
