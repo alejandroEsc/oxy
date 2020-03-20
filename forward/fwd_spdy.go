@@ -482,7 +482,7 @@ func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.
 		return
 	}
 
-	copyHeader(res.Header, rw.Header())
+	copyHeader(rw.Header(), res.Header)
 
 	hj, ok := rw.(http.Hijacker)
 	if !ok {
