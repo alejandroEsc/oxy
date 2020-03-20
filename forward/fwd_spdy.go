@@ -136,7 +136,7 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 	config := f.tlsClientConfig.Clone()
 	config.NextProtos = []string{"h1"}
 
-	spdyRountTripper := k8spdy.NewRoundTripper(config, true)
+	spdyRountTripper := NewSpdyRoundTripper(config, true)
 
 	res, err := spdyRountTripper.RoundTrip(outReq)
 	if err != nil {
@@ -149,7 +149,13 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 	// Deal with 101 Switching Protocols responses: (WebSocket, h2c, etc)
 	if res.StatusCode == http.StatusSwitchingProtocols {
 		f.log.Debugf("%s The response has a 101 switch protocol response, we are handling it now", debugPrefix)
-		handleUpgradeResponse(w, outReq, res)
+		f.handleViaStreams(w, outReq, ctx)
+		resConn := spdyRountTripper.RespondConn()
+		if err != nil {
+			f.log.Debugf("%s error creating a response connection %s", debugPrefix, err)
+			return
+		}
+		handleUpgradeResponse(w, outReq, res, resConn)
 		return
 	}
 
@@ -467,8 +473,8 @@ func upgradeType(h http.Header) string {
 	return strings.ToLower(h.Get("Upgrade"))
 }
 
-func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.Response) {
-	log.Debugf("%s handleUpgradeResponse")
+func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.Response, backConn net.Conn) {
+	log.Debugf("%s handleUpgradeResponse", debugPrefix)
 	reqUpType := upgradeType(req.Header)
 	resUpType := upgradeType(res.Header)
 	if reqUpType != resUpType {
@@ -481,11 +487,6 @@ func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.
 	hj, ok := rw.(http.Hijacker)
 	if !ok {
 		log.Debugf("can't switch protocols using non-Hijacker ResponseWriter type %T", rw)
-		return
-	}
-	backConn, ok := res.Body.(io.ReadWriteCloser)
-	if !ok {
-		log.Debugf("internal error: 101 switching protocols response with non-writable body")
 		return
 	}
 	defer backConn.Close()
