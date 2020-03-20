@@ -222,8 +222,6 @@ func streamReceived(streams chan httpstream.Stream) func(httpstream.Stream, <-ch
 
 // copySPDYRequest makes a copy of the specified request.
 func (f *httpForwarder) copySPDYRequest(req *http.Request) (outReq *http.Request) {
-	req.Clone(req.Context())
-
 	outReq = new(http.Request)
 	*outReq = *req // includes shallow copies of maps, but we handle this below
 
