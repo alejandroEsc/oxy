@@ -132,7 +132,11 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		outReq.Header.Set("X-Forwarded-For", clientIP)
 	}
 
-	spdyRountTripper := k8spdy.NewRoundTripper(f.tlsClientConfig.Clone(), true)
+	// must clone and NextProtos to not use h2
+	config := f.tlsClientConfig.Clone()
+	config.NextProtos = []string{"h1"}
+
+	spdyRountTripper := k8spdy.NewRoundTripper(config, true)
 
 	res, err := spdyRountTripper.RoundTrip(outReq)
 	if err != nil {
