@@ -234,6 +234,11 @@ func (s *SpdyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	header.Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
 	header.Add(httpstream.HeaderUpgrade, k8spdy.HeaderSpdy31)
 
+	// stream protocol
+	for _, p := range req.Header[httpstream.HeaderProtocolVersion] {
+		header.Add(httpstream.HeaderProtocolVersion, p)
+	}
+
 	var (
 		conn        net.Conn
 		rawResponse []byte
