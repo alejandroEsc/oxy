@@ -109,31 +109,31 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		}()
 	}
 
-	outreq := f.copySPDYRequest(req)
+	outReq := req.Clone(reqCtx)
 	if req.ContentLength == 0 {
-		outreq.Body = nil // Issue 16036: nil Body for http.Transport retries
+		outReq.Body = nil // Issue 16036: nil Body for http.Transport retries
 	}
-	if outreq.Header == nil {
-		outreq.Header = make(http.Header) // Issue 33142: historical behavior was to always allocate
+	if outReq.Header == nil {
+		outReq.Header = make(http.Header) // Issue 33142: historical behavior was to always allocate
 	}
 
-	f.modifySPDYRequest(outreq, req.URL)
-	outreq.Close = false
+	f.modifySPDYRequest(outReq, req.URL)
+	outReq.Close = false
 
 
 	if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
 		// If we aren't the first proxy retain prior
 		// X-Forwarded-For information as a comma+space
 		// separated list and fold multiple headers into one.
-		if prior, ok := outreq.Header["X-Forwarded-For"]; ok {
+		if prior, ok := outReq.Header["X-Forwarded-For"]; ok {
 			clientIP = strings.Join(prior, ", ") + ", " + clientIP
 		}
-		outreq.Header.Set("X-Forwarded-For", clientIP)
+		outReq.Header.Set("X-Forwarded-For", clientIP)
 	}
 
 	spdyRountTripper := k8spdy.NewSpdyRoundTripper(f.tlsClientConfig, true)
 
-	res, err := spdyRountTripper.RoundTrip(outreq)
+	res, err := spdyRountTripper.RoundTrip(outReq)
 	if err != nil {
 		return
 	}
@@ -222,6 +222,8 @@ func streamReceived(streams chan httpstream.Stream) func(httpstream.Stream, <-ch
 
 // copySPDYRequest makes a copy of the specified request.
 func (f *httpForwarder) copySPDYRequest(req *http.Request) (outReq *http.Request) {
+	req.Clone(req.Context())
+
 	outReq = new(http.Request)
 	*outReq = *req // includes shallow copies of maps, but we handle this below
 

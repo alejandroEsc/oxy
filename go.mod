@@ -1,8 +1,9 @@
 module github.com/vulcand/oxy
 
-go 1.12
+go 1.13
 
 require (
+	github.com/amahi/spdy v0.0.0-20151020092514-31da8b754faf
 	//	github.com/SlyMarbo/spdy v0.0.0-20140609194815-a0d2c56cf770 // indirect
 	//	github.com/SlyMarbo/spin v0.0.0-20140607095123-1c3ff10e10c8 // indirect
 	//	github.com/amahi/spdy v0.0.0-20151020092514-31da8b754faf
