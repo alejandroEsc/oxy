@@ -122,6 +122,7 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 	f.modifyRequest(outReq, req.URL)
 	outReq.Close = false
 
+	f.log.Debugf("%s OutRequest: %v",debugPrefix, outReq)
 
 	if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
 		// If we aren't the first proxy retain prior
@@ -140,9 +141,11 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		return
 	}
 
+	f.log.Debugf("%s Res: %v",debugPrefix, res)
 
 	// Deal with 101 Switching Protocols responses: (WebSocket, h2c, etc)
 	if res.StatusCode == http.StatusSwitchingProtocols {
+		f.log.Debugf("%s The response has a 101 switch protocol response, we are handling it now", debugPrefix)
 		handleUpgradeResponse(w, outReq, res)
 		return
 	}
@@ -490,7 +493,7 @@ func upgradeType(h http.Header) string {
 }
 
 func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.Response) {
-
+	log.Debugf("%s handleUpgradeResponse")
 	reqUpType := upgradeType(req.Header)
 	resUpType := upgradeType(res.Header)
 	if reqUpType != resUpType {
