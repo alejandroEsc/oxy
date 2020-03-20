@@ -134,7 +134,7 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		outReq.Header.Set("X-Forwarded-For", clientIP)
 	}
 
-	spdyRountTripper := k8spdy.NewRoundTripper(f.tlsClientConfig, true)
+	spdyRountTripper := k8spdy.NewRoundTripper(f.tlsClientConfig.Clone(), true)
 
 	res, err := spdyRountTripper.RoundTrip(outReq)
 	if err != nil {
@@ -238,34 +238,6 @@ func streamReceived(streams chan httpstream.Stream) func(httpstream.Stream, <-ch
 		return nil
 	}
 }
-
-// Modify the request to handle the target URL
-func (f *httpForwarder) modifySPDYRequest(outReq *http.Request, target *url.URL) {
-	outReq.URL = utils.CopyURL(outReq.URL)
-	outReq.URL.Scheme = target.Scheme
-	outReq.URL.Host = target.Host
-
-	u := f.getUrlFromRequest(outReq)
-
-	outReq.URL.Path = u.Path
-	outReq.URL.RawPath = u.RawPath
-	outReq.URL.RawQuery = u.RawQuery
-	outReq.RequestURI = "" // Outgoing request should not have RequestURI
-
-	outReq.Proto = "SPDY/3.1"
-	outReq.ProtoMajor = 3
-	outReq.ProtoMinor = 1
-
-	if f.rewriter != nil {
-		f.rewriter.Rewrite(outReq)
-	}
-
-	// Do not pass client Host header unless optsetter PassHostHeader is set.
-	if !f.passHost {
-		outReq.Host = target.Host
-	}
-}
-
 
 // IsSPDYRequest determines if the specified HTTP request is a
 // SPDY/3.1 handshake request
