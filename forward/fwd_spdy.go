@@ -143,6 +143,7 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		f.log.Debugf("%s error retrieving response: %s", debugPrefix, err)
 		return
 	}
+	// get the connection that produced the http response
 	resConn := spdyRountTripper.RespondConn()
 
 	f.log.Debugf("%s Res: %v",debugPrefix, res)
@@ -150,8 +151,6 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 	// Deal with 101 Switching Protocols responses: (WebSocket, h2c, etc)
 	if res.StatusCode == http.StatusSwitchingProtocols {
 		f.log.Debugf("%s The response has a 101 switch protocol response, we are handling it now", debugPrefix)
-		f.handleViaStreams(w, outReq, ctx)
-
 		handleUpgradeResponse(w, outReq, res, resConn)
 		return
 	}
