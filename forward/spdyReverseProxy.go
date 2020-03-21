@@ -9,11 +9,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/http/httpguts"
-
 )
 
 const (
-	debugPrefix = "AE: vulcand/oxy/forward/spdy: "
+	debugPrefix = "vulcand/oxy/forward/spdy"
 )
 
 // IsSPDYRequest determines if the specified HTTP request is a
@@ -33,7 +32,7 @@ func IsSPDYRequest(req *http.Request) bool {
 }
 
 func (f *httpForwarder) serveSPDYReverseProxy(w http.ResponseWriter, req *http.Request) {
-	f.log.Debugf("%s serveSPDYReverseProxy", debugPrefix)
+	f.log.Debugf("%s: serveSPDYReverseProxy", debugPrefix)
 
 	ctx := req.Context()
 	if cn, ok := w.(http.CloseNotifier); ok {
@@ -61,8 +60,6 @@ func (f *httpForwarder) serveSPDYReverseProxy(w http.ResponseWriter, req *http.R
 	f.modifyRequest(outReq, req.URL)
 	outReq.Close = false
 
-	f.log.Debugf("%s OutRequest: %v",debugPrefix, outReq)
-
 	if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
 		// If we aren't the first proxy retain prior
 		// X-Forwarded-For information as a comma+space
@@ -77,21 +74,20 @@ func (f *httpForwarder) serveSPDYReverseProxy(w http.ResponseWriter, req *http.R
 	config := f.tlsClientConfig.Clone()
 	config.NextProtos = []string{"h1"}
 
-	spdyRountTripper := NewSpdyRoundTripper(config, true)
 
-	res, err := spdyRountTripper.RoundTrip(outReq)
+	spdyRoundTripper := NewSpdyRoundTripper(config, true)
+
+	res, err := spdyRoundTripper.RoundTrip(outReq)
 	if err != nil {
-		f.log.Debugf("%s error retrieving response: %s", debugPrefix, err)
+		f.log.Debugf("%s: Error retrieving response: %s", debugPrefix, err)
 		return
 	}
 	// get the connection that produced the http response
-	resConn := spdyRountTripper.RespondConn()
-
-	f.log.Debugf("%s Res: %v",debugPrefix, res)
+	resConn := spdyRoundTripper.RespondConn()
 
 	// Deal with 101 Switching Protocols responses: (WebSocket, h2c, etc)
 	if res.StatusCode == http.StatusSwitchingProtocols {
-		f.log.Debugf("%s The response has a 101 switch protocol response, we are handling it now", debugPrefix)
+		f.log.Debugf("%s: The response has a 101 switch protocol response, we are handling it now", debugPrefix)
 		handleUpgradeResponse(w, outReq, res, resConn)
 		return
 	}
@@ -113,22 +109,19 @@ func upgradeType(h http.Header) string {
 }
 
 func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.Response, backConn net.Conn) {
-	log.Debugf("%s handleUpgradeResponse", debugPrefix)
-	log.Debugf("%s handler response: %v", debugPrefix, res)
+	log.Debugf("%s: handleUpgradeResponse: %s", debugPrefix, res)
 	reqUpType := upgradeType(req.Header)
 	resUpType := upgradeType(res.Header)
 	if reqUpType != resUpType {
-		log.Debugf("backend tried to switch protocol %q when %q was requested", resUpType, reqUpType)
+		log.Debugf("%s: backend tried to switch protocol %q when %q was requested", debugPrefix, resUpType, reqUpType)
 		return
 	}
 
 	copyHeader(rw.Header(), res.Header)
 
-	log.Debugf("%s headers: %v", debugPrefix, rw.Header())
-
 	hj, ok := rw.(http.Hijacker)
 	if !ok {
-		log.Debugf("can't switch protocols using non-Hijacker ResponseWriter type %T", rw)
+		log.Debugf("s: can't switch protocols using non-Hijacker ResponseWriter type %T", debugPrefix, rw)
 		return
 	}
 	defer backConn.Close()
@@ -140,11 +133,11 @@ func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.
 	defer conn.Close()
 	res.Body = nil // so res.Write only writes the headers; we have res.Body in backConn above
 	if err := res.Write(brw); err != nil {
-		log.Debugf("response write: %v", err)
+		log.Debugf("%s: response write: %v", debugPrefix, err)
 		return
 	}
 	if err := brw.Flush(); err != nil {
-		log.Debugf("response flush: %v", err)
+		log.Debugf("s: response flush: %v", debugPrefix, err)
 		return
 	}
 	errc := make(chan error, 1)
@@ -152,7 +145,7 @@ func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.
 	go spc.copyToBackend(errc)
 	go spc.copyFromBackend(errc)
 	<-errc
-	log.Debugf("%s handleUpgradeResponse -  done - ", debugPrefix)
+	log.Debugf("%s: handleUpgradeResponse -  done - ", debugPrefix)
 	return
 }
 

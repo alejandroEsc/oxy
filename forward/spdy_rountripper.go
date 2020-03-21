@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -20,9 +19,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/httpstream"
+	k8spdy "k8s.io/apimachinery/pkg/util/httpstream/spdy"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/third_party/forked/golang/netutil"
-
 )
 
 // SpdyRoundTripper knows how to upgrade an HTTP request to one that supports
@@ -57,12 +56,6 @@ type SpdyRoundTripper struct {
 var _ utilnet.TLSClientConfigHolder = &SpdyRoundTripper{}
 var _ httpstream.UpgradeRoundTripper = &SpdyRoundTripper{}
 var _ utilnet.Dialer = &SpdyRoundTripper{}
-
-// NewRoundTripper creates a new SpdyRoundTripper that will use
-// the specified tlsConfig.
-func NewRoundTripper(tlsConfig *tls.Config, followRedirects bool) httpstream.UpgradeRoundTripper {
-	return NewSpdyRoundTripper(tlsConfig, followRedirects)
-}
 
 // NewSpdyRoundTripper creates a new SpdyRoundTripper that will use
 // the specified tlsConfig. This function is mostly meant for unit tests.
