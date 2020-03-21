@@ -143,6 +143,7 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 		f.log.Debugf("%s error retrieving response: %s", debugPrefix, err)
 		return
 	}
+	resConn := spdyRountTripper.RespondConn()
 
 	f.log.Debugf("%s Res: %v",debugPrefix, res)
 
@@ -150,11 +151,7 @@ func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.R
 	if res.StatusCode == http.StatusSwitchingProtocols {
 		f.log.Debugf("%s The response has a 101 switch protocol response, we are handling it now", debugPrefix)
 		f.handleViaStreams(w, outReq, ctx)
-		resConn := spdyRountTripper.RespondConn()
-		if err != nil {
-			f.log.Debugf("%s error creating a response connection %s", debugPrefix, err)
-			return
-		}
+
 		handleUpgradeResponse(w, outReq, res, resConn)
 		return
 	}
@@ -475,6 +472,7 @@ func upgradeType(h http.Header) string {
 
 func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.Response, backConn net.Conn) {
 	log.Debugf("%s handleUpgradeResponse", debugPrefix)
+	log.Debugf("%s handler response: %v", debugPrefix, res)
 	reqUpType := upgradeType(req.Header)
 	resUpType := upgradeType(res.Header)
 	if reqUpType != resUpType {
@@ -483,6 +481,8 @@ func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.
 	}
 
 	copyHeader(rw.Header(), res.Header)
+
+	log.Debugf("%s headers: %v", debugPrefix, rw.Header())
 
 	hj, ok := rw.(http.Hijacker)
 	if !ok {
@@ -510,6 +510,7 @@ func handleUpgradeResponse(rw http.ResponseWriter, req *http.Request, res *http.
 	go spc.copyToBackend(errc)
 	go spc.copyFromBackend(errc)
 	<-errc
+	log.Debugf("%s handleUpgradeResponse -  done - ", debugPrefix)
 	return
 }
 
