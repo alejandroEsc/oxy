@@ -12,37 +12,45 @@ import (
 
 )
 
-var hopHeaders = []string{
-	"Connection",
-	"Proxy-Connection", // non-standard but still sent by libcurl and rejected by e.g. google
-	"Keep-Alive",
-	"Proxy-Authenticate",
-	"Proxy-Authorization",
-	"Te",      // canonicalized version of "TE"
-	"Trailer", // not Trailers per URL above; https://www.rfc-editor.org/errata_search.php?eid=4522
-	"Transfer-Encoding",
-	"Upgrade",
+const (
+	debugPrefix = "AE: vulcand/oxy/forward/spdy: "
+)
+
+// IsSPDYRequest determines if the specified HTTP request is a
+// SPDY/3.1 handshake request
+func IsSPDYRequest(req *http.Request) bool {
+	containsHeader := func(name, value string) bool {
+		items := strings.Split(req.Header.Get(name), ",")
+		for _, item := range items {
+			if value == strings.ToLower(strings.TrimSpace(item)) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return containsHeader(Connection, "upgrade") && containsHeader(Upgrade, "spdy/3.1")
 }
 
-func (f *httpForwarder) handleViaReverseProxy(w http.ResponseWriter, req *http.Request, ctx *handlerContext) {
-	f.log.Debugf("%s handleViaReverseProxy", debugPrefix)
+func (f *httpForwarder) serveSPDYReverseProxy(w http.ResponseWriter, req *http.Request) {
+	f.log.Debugf("%s serveSPDYReverseProxy", debugPrefix)
 
-	reqCtx := req.Context()
+	ctx := req.Context()
 	if cn, ok := w.(http.CloseNotifier); ok {
 		var cancel context.CancelFunc
-		reqCtx, cancel = context.WithCancel(reqCtx)
+		ctx, cancel = context.WithCancel(ctx)
 		defer cancel()
 		notifyChan := cn.CloseNotify()
 		go func() {
 			select {
 			case <-notifyChan:
 				cancel()
-			case <-reqCtx.Done():
+			case <-ctx.Done():
 			}
 		}()
 	}
 
-	outReq := req.Clone(reqCtx)
+	outReq := req.Clone(ctx)
 	if req.ContentLength == 0 {
 		outReq.Body = nil // Issue 16036: nil Body for http.Transport retries
 	}

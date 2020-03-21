@@ -280,7 +280,7 @@ func (f *Forwarder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if IsWebsocketRequest(req) {
 		f.httpForwarder.serveWebSocket(w, req, f.handlerContext)
 	}  else if IsSPDYRequest(req) {
-		f.httpForwarder.serveSPDY(w, req, f.handlerContext)
+		f.httpForwarder.serveSPDYReverseProxy(w, req)
 	} else {
 		f.httpForwarder.serveHTTP(w, req, f.handlerContext)
 	}
